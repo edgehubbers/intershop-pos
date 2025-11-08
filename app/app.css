@@ -1,18 +1,12 @@
-/* app/app.css */
-
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", system-ui, sans-serif;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
-html,
-body {
-  @apply bg-gray-50 text-gray-900;
-}
+html, body { @apply bg-white text-gray-900 font-sans; }
+
+/* scroll suave para navegación entre rutas/secciones */
+html { scroll-behavior: smooth; }

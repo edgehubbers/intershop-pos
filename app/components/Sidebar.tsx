@@ -11,6 +11,7 @@ export function Sidebar() {
 
   const menuItems = [
     { path: "/dashboard", label: "Inicio", icon: "📊" },
+    { path: "/dashboard/pos", label: "Punto de Venta", icon: "🛒" },
     { path: "/dashboard/products", label: "Productos", icon: "📦" },
     { path: "/dashboard/sales", label: "Ventas", icon: "💰" },
   ];
@@ -22,7 +23,6 @@ export function Sidebar() {
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
-      {/* Logo */}
       <div className="p-6 border-b border-gray-200">
         <Link to="/dashboard" className="flex items-center space-x-2">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
@@ -32,7 +32,6 @@ export function Sidebar() {
         </Link>
       </div>
 
-      {/* Menu */}
       <nav className="flex-1 p-4 space-y-1">
         {menuItems.map((item) => (
           <Link
@@ -50,7 +49,6 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Logout */}
       <div className="p-4 border-t border-gray-200">
         <button
           onClick={handleLogout}

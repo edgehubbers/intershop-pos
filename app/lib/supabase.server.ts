@@ -10,3 +10,4 @@ export function getSupabaseServer() {
     auth: { persistSession: false },
   });
 }
+//app\lib\supabase.server.ts
