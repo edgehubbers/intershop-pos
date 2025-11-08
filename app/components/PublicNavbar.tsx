@@ -1,9 +1,10 @@
+// app/components/PublicNavbar.tsx
+
 import React from "react";
 import CardNav from "./CardNav";
 import type { CardNavItem } from "./CardNav";
 
 export function PublicNavbar() {
-  // 3 tarjetas: Características, Sobre nosotros, Precio
   const items: CardNavItem[] = [
     {
       label: "Características",
@@ -40,7 +41,7 @@ export function PublicNavbar() {
       logo="/logo.png"
       logoAlt="InterShop"
       items={items}
-      baseColor="rgba(255,255,255,0.16)"  // efecto glass
+      baseColor="rgba(255,255,255,0.16)"
       menuColor="#000"
       buttonBgColor="#111"
       buttonTextColor="#fff"

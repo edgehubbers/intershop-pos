@@ -1,16 +1,20 @@
-import type { Route } from "./+types/login";
+// app/routes/login.tsx
+
 import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import { supabase } from "../lib/supabase.client";
 
-export function meta({}: Route.MetaArgs) {
+// ✅ Eliminado: import type { Route } from "./+types/login"
+// No es necesario en React Router v7
+
+export function meta() {
   return [
     { title: "Iniciar Sesión - InterShop POS" },
     { name: "description", content: "Accede a tu cuenta de InterShop" },
   ];
 }
 
-export async function loader({}: Route.LoaderArgs) {
+export async function loader() {
   return null;
 }
 
@@ -25,14 +29,17 @@ export default function Login() {
     e.preventDefault();
     setErrorMsg(null);
     setLoading(true);
+
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+
     setLoading(false);
 
     if (error) {
       setErrorMsg(error.message);
       return;
     }
-    navigate("/dashboard");
+
+    navigate("/dashboard", { replace: true });
   };
 
   return (
@@ -100,16 +107,19 @@ export default function Login() {
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
               ¿No tienes una cuenta?{" "}
-              <Link to="/register" className="text-blue-600 hover:text-blue-700 font-medium">Regístrate gratis</Link>
+              <Link to="/register" className="text-blue-600 hover:text-blue-700 font-medium">
+                Regístrate gratis
+              </Link>
             </p>
           </div>
         </div>
 
         <div className="mt-6 text-center">
-          <Link to="/" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">← Volver al inicio</Link>
+          <Link to="/" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            ← Volver al inicio
+          </Link>
         </div>
       </div>
     </div>
   );
 }
-//app\routes\login.tsx

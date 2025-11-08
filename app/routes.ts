@@ -12,6 +12,8 @@ export default [
     route("dashboard/pos", "routes/dashboard/pos.tsx"),
     route("dashboard/products", "routes/dashboard/products.tsx"),
     route("dashboard/sales", "routes/dashboard/sales.tsx"),
+    route("dashboard/chatbot", "routes/dashboard/chatbot.tsx"),
+
   ]),
 
   route("op", "routes/op.tsx"),
