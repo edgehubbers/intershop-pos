@@ -1,5 +1,3 @@
-// app/root.tsx
-
 import {
   isRouteErrorResponse,
   Links,
@@ -7,6 +5,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  NavLink,
 } from "react-router";
 
 import type { Route } from "./+types/root";
@@ -34,8 +33,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
       </head>
-      <body>
-        {children}
+      <body className="min-h-screen">
+        <header className="border-b sticky top-0 bg-white/70 dark:bg-gray-950/70 backdrop-blur">
+          <nav className="max-w-6xl mx-auto p-4 flex items-center gap-6">
+            <NavLink to="/" className={({ isActive }) => isActive ? "underline font-semibold" : "opacity-80 hover:opacity-100"} end>
+              Inicio
+            </NavLink>
+            <NavLink to="/op" className={({ isActive }) => isActive ? "underline" : "opacity-80 hover:opacity-100"}>
+              Open Payments
+            </NavLink>
+            <NavLink to="/db" className={({ isActive }) => isActive ? "underline" : "opacity-80 hover:opacity-100"}>
+              Supabase
+            </NavLink>
+          </nav>
+        </header>
+
+        <main className="max-w-6xl mx-auto p-4">{children}</main>
+
         <ScrollRestoration />
         <Scripts />
       </body>
@@ -43,37 +57,30 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function App() {
-  return <Outlet />;
-}
+export default function App() { return <Outlet />; }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   let message = "Oops!";
-  let details = "Ha ocurrido un error inesperado.";
+  let details = "An unexpected error occurred.";
   let stack: string | undefined;
 
   if (isRouteErrorResponse(error)) {
     message = error.status === 404 ? "404" : "Error";
-    details =
-      error.status === 404
-        ? "La página solicitada no se encontró."
-        : error.statusText || details;
+    details = error.status === 404 ? "The requested page could not be found." : error.statusText || details;
   } else if (import.meta.env.DEV && error && error instanceof Error) {
     details = error.message;
     stack = error.stack;
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-lg w-full">
-        <h1 className="text-3xl font-bold text-red-600 mb-4">{message}</h1>
-        <p className="text-gray-700 mb-4">{details}</p>
-        {stack && (
-          <pre className="mt-4 w-full p-4 overflow-x-auto bg-gray-900 text-gray-100 rounded-lg text-xs">
-            <code>{stack}</code>
-          </pre>
-        )}
-      </div>
+    <main className="pt-16 p-4 container mx-auto">
+      <h1>{message}</h1>
+      <p>{details}</p>
+      {stack && (
+        <pre className="w-full p-4 overflow-x-auto">
+          <code>{stack}</code>
+        </pre>
+      )}
     </main>
   );
 }
