@@ -11,14 +11,22 @@ export default function DashboardLayout() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data, error }) => {
-      if (error || !data.user) {
-        navigate("/login");
-      } else {
-        setUserEmail(data.user.email ?? null);
-        setLoading(false);
+    // ✅ Tipado explícito de la respuesta de getUser()
+    supabase.auth.getUser().then(
+      (response: {
+        data: { user: { email?: string } | null };
+        error: Error | null;
+      }) => {
+        const { data, error } = response;
+
+        if (error || !data.user) {
+          navigate("/login");
+        } else {
+          setUserEmail(data.user.email ?? null);
+          setLoading(false);
+        }
       }
-    });
+    );
   }, [navigate]);
 
   if (loading) {
@@ -35,7 +43,7 @@ export default function DashboardLayout() {
   return (
     <div className="min-h-screen flex bg-gray-50">
       <Sidebar />
-      
+
       <div className="flex-1 flex flex-col">
         <header className="bg-white border-b border-gray-200 px-8 py-4">
           <div className="flex items-center justify-between">

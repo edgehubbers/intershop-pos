@@ -26,6 +26,9 @@ export function PublicNavbar() {
             <Link to="/#pricing" className="text-sm font-medium text-gray-600 hover:text-gray-900">
               Precios
             </Link>
+            <Link to="/#chatbot" className="text-sm font-medium text-gray-600 hover:text-gray-900">
+              Chatbot
+            </Link>
           </div>
 
           {/* Auth Buttons */}

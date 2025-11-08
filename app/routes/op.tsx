@@ -1,4 +1,5 @@
-import type { Route } from "./+types/op";
+// app/routes/op.tsx
+
 import { useLoaderData } from "react-router";
 
 function readPrivateKeyPEM(): string | null {
@@ -15,7 +16,8 @@ function readPrivateKeyPEM(): string | null {
   return null;
 }
 
-export async function loader({}: Route.LoaderArgs) {
+// ✅ Eliminado el tipo Route.LoaderArgs
+export async function loader() {
   const pem = readPrivateKeyPEM();
   if (!pem) return { hasKey: false as const };
 
@@ -75,4 +77,3 @@ export default function OpenPaymentsSandbox() {
     </section>
   );
 }
-//app\routes\op.tsx

@@ -1,27 +1,45 @@
 {
-  "include": [
-    "**/*",
-    "**/.server/**/*",
-    "**/.client/**/*",
-    ".react-router/types/**/*"
-  ],
   "compilerOptions": {
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "types": ["node", "vite/client"],
-    "target": "ES2022",
-    "module": "ES2022",
-    "moduleResolution": "bundler",
+    /* 💻 Configuración base moderna */
+    "target": "ESNext",
+    "module": "ESNext",
     "jsx": "react-jsx",
-    "rootDirs": [".", "./.react-router/types"],
+    "moduleResolution": "bundler",
+
+    /* ⚙️ Control estricto y robusto */
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* 🔍 Paths y tipado */
     "baseUrl": ".",
     "paths": {
       "~/*": ["./app/*"]
     },
+
+    /* 🧱 Soporte de import/export moderno */
     "esModuleInterop": true,
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
     "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "strict": true
-  }
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+
+    /* 📚 Librerías del navegador y Node */
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": ["node", "vite/client"]
+  },
+
+  /* 🧩 Qué archivos debe analizar TypeScript */
+  "include": [
+    "app",
+    "server.ts",
+    "vite.config.ts"
+  ],
+
+  /* 🚫 Qué debe ignorar (evita conflictos en macOS) */
+  "exclude": [
+    "node_modules",
+    ".react-router",
+    "build",
+    "dist"
+  ]
 }

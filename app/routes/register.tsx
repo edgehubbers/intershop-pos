@@ -1,16 +1,19 @@
-import type { Route } from "./+types/register";
+// app/routes/register.tsx
+
 import { Link, useNavigate } from "react-router";
 import { useState } from "react";
 import { supabase } from "../lib/supabase.client";
 
-export function meta({}: Route.MetaArgs) {
+// ✅ Eliminamos el tipo Route.MetaArgs
+export function meta() {
   return [
     { title: "Registrarse - InterShop POS" },
     { name: "description", content: "Crea tu cuenta en InterShop" },
   ];
 }
 
-export async function loader({}: Route.LoaderArgs) {
+// ✅ Eliminamos el tipo Route.LoaderArgs
+export async function loader() {
   return null;
 }
 
@@ -93,7 +96,9 @@ export default function Register() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Nombre Completo</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Nombre Completo
+              </label>
               <input
                 type="text"
                 name="name"
@@ -106,7 +111,9 @@ export default function Register() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Correo Electrónico</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Correo Electrónico
+              </label>
               <input
                 type="email"
                 name="email"
@@ -119,7 +126,9 @@ export default function Register() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Contraseña</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Contraseña
+              </label>
               <input
                 type="password"
                 name="password"
@@ -132,7 +141,9 @@ export default function Register() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Confirmar Contraseña</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Confirmar Contraseña
+              </label>
               <input
                 type="password"
                 name="confirmPassword"
@@ -145,10 +156,20 @@ export default function Register() {
             </div>
 
             <div className="flex items-start">
-              <input type="checkbox" className="w-4 h-4 mt-1 text-blue-600 border-gray-300 rounded focus:ring-blue-500" required />
+              <input
+                type="checkbox"
+                className="w-4 h-4 mt-1 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                required
+              />
               <label className="ml-2 text-sm text-gray-600">
-                Acepto los <a href="#" className="text-blue-600 hover:text-blue-700">términos</a> y la{" "}
-                <a href="#" className="text-blue-600 hover:text-blue-700">política de privacidad</a>.
+                Acepto los{" "}
+                <a href="#" className="text-blue-600 hover:text-blue-700">
+                  términos
+                </a>{" "}
+                y la{" "}
+                <a href="#" className="text-blue-600 hover:text-blue-700">
+                  política de privacidad
+                </a>.
               </label>
             </div>
 
@@ -164,16 +185,25 @@ export default function Register() {
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
               ¿Ya tienes una cuenta?{" "}
-              <Link to="/login" className="text-blue-600 hover:text-blue-700 font-medium">Inicia sesión</Link>
+              <Link
+                to="/login"
+                className="text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Inicia sesión
+              </Link>
             </p>
           </div>
         </div>
 
         <div className="mt-6 text-center">
-          <Link to="/" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">← Volver al inicio</Link>
+          <Link
+            to="/"
+            className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            ← Volver al inicio
+          </Link>
         </div>
       </div>
     </div>
   );
 }
-//app\routes\register.tsx
