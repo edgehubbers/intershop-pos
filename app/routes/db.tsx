@@ -1,3 +1,5 @@
+//app\routes\db.tsx
+
 import type { Route } from "./+types/db";
 import { useLoaderData } from "react-router";
 import { getSupabaseServer } from "../lib/supabase.server";

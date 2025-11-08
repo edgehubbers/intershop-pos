@@ -1,3 +1,5 @@
+// app/root.tsx
+
 import {
   isRouteErrorResponse,
   Links,
@@ -5,7 +7,6 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  NavLink,
 } from "react-router";
 
 import type { Route } from "./+types/root";
@@ -20,7 +21,7 @@ export const links: Route.LinksFunction = () => [
   },
   {
     rel: "stylesheet",
-    href: "https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap",
+    href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
   },
 ];
 
@@ -33,23 +34,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
       </head>
-      <body className="min-h-screen">
-        <header className="border-b sticky top-0 bg-white/70 dark:bg-gray-950/70 backdrop-blur">
-          <nav className="max-w-6xl mx-auto p-4 flex items-center gap-6">
-            <NavLink to="/" className={({ isActive }) => isActive ? "underline font-semibold" : "opacity-80 hover:opacity-100"} end>
-              Inicio
-            </NavLink>
-            <NavLink to="/op" className={({ isActive }) => isActive ? "underline" : "opacity-80 hover:opacity-100"}>
-              Open Payments
-            </NavLink>
-            <NavLink to="/db" className={({ isActive }) => isActive ? "underline" : "opacity-80 hover:opacity-100"}>
-              Supabase
-            </NavLink>
-          </nav>
-        </header>
-
-        <main className="max-w-6xl mx-auto p-4">{children}</main>
-
+      <body>
+        {children}
         <ScrollRestoration />
         <Scripts />
       </body>
@@ -57,30 +43,28 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function App() { return <Outlet />; }
+export default function App() {
+  return <Outlet />;
+}
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  let message = "Oops!";
-  let details = "An unexpected error occurred.";
-  let stack: string | undefined;
+  let message = "Error";
+  let details = "Ha ocurrido un error inesperado";
 
   if (isRouteErrorResponse(error)) {
     message = error.status === 404 ? "404" : "Error";
-    details = error.status === 404 ? "The requested page could not be found." : error.statusText || details;
-  } else if (import.meta.env.DEV && error && error instanceof Error) {
-    details = error.message;
-    stack = error.stack;
+    details =
+      error.status === 404
+        ? "La página no existe"
+        : error.statusText || details;
   }
 
   return (
-    <main className="pt-16 p-4 container mx-auto">
-      <h1>{message}</h1>
-      <p>{details}</p>
-      {stack && (
-        <pre className="w-full p-4 overflow-x-auto">
-          <code>{stack}</code>
-        </pre>
-      )}
-    </main>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">{message}</h1>
+        <p className="text-gray-600">{details}</p>
+      </div>
+    </div>
   );
 }

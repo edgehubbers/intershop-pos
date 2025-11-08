@@ -176,3 +176,4 @@ export default function Register() {
     </div>
   );
 }
+//app\routes\register.tsx
