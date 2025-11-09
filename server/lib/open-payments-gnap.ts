@@ -1,3 +1,4 @@
+//server\lib\open-payments-gnap.ts
 import {
   createAuthenticatedClient,
   isPendingGrant

@@ -1,3 +1,4 @@
+// app\routes\tienda.callback.tsx
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 

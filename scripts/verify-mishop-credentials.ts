@@ -179,3 +179,5 @@ verify().catch((e) => {
   console.error('\n💥 Error inesperado:', e);
   process.exit(1);
 });
+
+//scripts\verify-mishop-credentials.ts

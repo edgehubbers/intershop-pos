@@ -1,3 +1,4 @@
+// app/components/sidebar.tsx (o donde tienes definido AppSidebar)
 import * as React from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { supabase } from "../lib/supabase.client";
@@ -14,6 +15,7 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
   SidebarRail,
+  useSidebar, // 👈 para saber si está colapsado/expandido
 } from "./ui/sidebar";
 import {
   LayoutDashboard,
@@ -34,18 +36,19 @@ type AppSidebarProps = {
 export function AppSidebar({ userEmail }: AppSidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { open } = useSidebar(); // 👈 estado del sidebar
 
   const isActive = (path: string) => location.pathname === path;
 
-const menuItems = [
-  { path: "/dashboard",            label: "Inicio",         icon: LayoutDashboard },
-  { path: "/dashboard/pos",        label: "Punto de Venta", icon: ShoppingCart   },
-  { path: "/dashboard/products",   label: "Productos",      icon: Package        },
-  { path: "/dashboard/sales",      label: "Ventas",         icon: ReceiptText    },
-  { path: "/dashboard/chatbot",    label: "Chatbot",        icon: Bot            },
-  { path: "/dashboard/analytics",  label: "Analytics",      icon: LineChart      },
-  { path: "/dashboard/tienda-online", label: "Tienda Online", icon: Store       }, // 👈 NUEVO
-];
+  const menuItems = [
+    { path: "/dashboard", label: "Inicio", icon: LayoutDashboard },
+    { path: "/dashboard/pos", label: "Punto de Venta", icon: ShoppingCart },
+    { path: "/dashboard/products", label: "Productos", icon: Package },
+    { path: "/dashboard/sales", label: "Ventas", icon: ReceiptText },
+    { path: "/dashboard/chatbot", label: "Chatbot", icon: Bot },
+    { path: "/dashboard/analytics", label: "Analytics", icon: LineChart },
+    { path: "/dashboard/tienda-online", label: "Tienda Online", icon: Store },
+  ];
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -54,16 +57,24 @@ const menuItems = [
 
   return (
     <UISidebar collapsible="icon" variant="sidebar" side="left">
-      {/* Cabecera simple con logo/brand */}
+      {/* Header con logo de /public/logo.png */}
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <Link to="/dashboard">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white text-sm font-bold">
-                  IS
-                </div>
-                <span className="truncate font-semibold">InterShop</span>
+              <Link to="/dashboard" className="flex items-center gap-3">
+                {/* El archivo está en /public/logo.png → se sirve como /logo.png */}
+                <img
+                  src="/logo.png"
+                  alt="InterShop"
+                  className="h-8 w-8 rounded-md object-contain"
+                  width={32}
+                  height={32}
+                />
+                {/* Mostrar nombre solo cuando el sidebar está expandido */}
+                {open ? (
+                  <span className="truncate font-semibold">InterShop</span>
+                ) : null}
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -85,7 +96,8 @@ const menuItems = [
                     <SidebarMenuButton asChild isActive={isActive(item.path)}>
                       <Link to={item.path}>
                         <Icon className="h-4 w-4" />
-                        <span className="truncate">{item.label}</span>
+                        {/* Ocultar texto cuando está colapsado */}
+                        {open ? <span className="truncate">{item.label}</span> : null}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -110,14 +122,16 @@ const menuItems = [
                 title="Cerrar sesión"
               >
                 <CircleUserRound className="h-5 w-5" />
-                <div className="min-w-0 text-left">
-                  <div className="truncate text-sm font-medium">
-                    {userEmail ?? "Usuario"}
+                {open ? (
+                  <div className="min-w-0 text-left">
+                    <div className="truncate text-sm font-medium">
+                      {userEmail ?? "Usuario"}
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      Cerrar sesión
+                    </div>
                   </div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    Cerrar sesión
-                  </div>
-                </div>
+                ) : null}
                 <LogOut className="ml-auto h-4 w-4 opacity-70" />
               </button>
             </SidebarMenuButton>
@@ -125,12 +139,8 @@ const menuItems = [
         </SidebarMenu>
       </SidebarFooter>
 
-      {/* Rail para colapsar/expandir al pasar el mouse/clic */}
+      {/* Rail para colapsar/expandir */}
       <SidebarRail />
     </UISidebar>
   );
 }
-
-// Si en algún lugar sigues importando { Sidebar } desde este archivo,
-// este alias evita errores de importación antiguos.
-// export { AppSidebar as Sidebar };

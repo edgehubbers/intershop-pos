@@ -539,3 +539,5 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando aprobación en
     </div>
   );
 }
+
+//app\routes\tienda.checkout.tsx

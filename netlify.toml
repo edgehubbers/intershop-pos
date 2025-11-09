@@ -1,0 +1,17 @@
+# netlify.toml
+[build]
+  command = "react-router build"
+  publish = "build/client"
+
+[dev]
+  command = "react-router dev"
+
+# (Opcional) Si algún HTML de callback estuviera en el front,
+# puedes forzar no-store con headers. No lo necesitas si usas el callback en backend.
+# [[headers]]
+#   for = "/tienda/callback"
+#   [headers.values]
+#     Cache-Control = "no-store"
+#     Pragma = "no-cache"
+#     X-Frame-Options = "DENY"
+#     Content-Security-Policy = "frame-ancestors 'none'; base-uri 'self'"
