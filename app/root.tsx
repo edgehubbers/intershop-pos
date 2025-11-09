@@ -1,4 +1,3 @@
-// app/root.tsx
 import {
   isRouteErrorResponse,
   Links,
@@ -45,12 +44,10 @@ export default function App() {
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   let message = "Error";
   let details = "Ha ocurrido un error inesperado";
-
   if (isRouteErrorResponse(error)) {
     message = error.status === 404 ? "404" : "Error";
     details = error.status === 404 ? "La página no existe" : error.statusText || details;
   }
-
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="text-center">
