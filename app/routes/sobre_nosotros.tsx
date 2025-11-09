@@ -1,5 +1,5 @@
 import React from "react";
-import SplitText from "../components/animation/SpliText";
+import SplitText from "../components/animation/SplitText";
 import BlurText from "../components/animation/BlurText";
 import ScrollFloat from "../components/animation/ScrollFloat";
 import ChromaGrid from "../components/animation/ChromaGrid";

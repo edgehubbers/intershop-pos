@@ -5,14 +5,10 @@ import type { CardNavItem } from "./CardNav";
 export function PublicNavbar() {
   const items: CardNavItem[] = [
     {
-      label: "Características",
+      label: "Home",
       bgColor: "#0D0716",
       textColor: "#fff",
-      links: [
-        { label: "Ventas", href: "/features", ariaLabel: "Ir a ventas" },
-        { label: "Inventario", href: "/features", ariaLabel: "Ir a inventario" },
-        { label: "Reportes", href: "/features", ariaLabel: "Ir a reportes" },
-      ],
+      links: [{ label: "Home", href: "/", ariaLabel: "Ir al Home" }],
     },
     {
       label: "Sobre nosotros",

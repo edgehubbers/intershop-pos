@@ -1,3 +1,4 @@
+// app/routes.ts
 import { type RouteConfig, index, route, layout } from "@react-router/dev/routes";
 
 export default [
@@ -5,12 +6,13 @@ export default [
   route("login", "routes/login.tsx"),
   route("register", "routes/register.tsx"),
 
-  // PÁGINAS PÚBLICAS
+  // PÚBLICAS
   route("mision-vision", "routes/mision_vision.tsx"),
   route("sobre-nosotros", "routes/sobre_nosotros.tsx"),
   route("preguntas-frecuentes", "routes/preguntas_frecuentes.tsx"),
+  route("pricing", "routes/pricing.tsx"),
 
-  // PÚBLICO E-COMMERCE
+  // E-COMMERCE
   route("tienda", "routes/tienda.tsx"),
   route("tienda/checkout", "routes/tienda.checkout.tsx"),
   route("tienda/pedidos", "routes/tienda.pedidos.tsx"),
