@@ -14,7 +14,9 @@ export function Sidebar() {
     { path: "/dashboard/pos", label: "Punto de Venta", icon: "🛒" },
     { path: "/dashboard/products", label: "Productos", icon: "📦" },
     { path: "/dashboard/sales", label: "Ventas", icon: "💰" },
-    { path: "/dashboard/chatbot", label: "Chatbot", icon: "🤖" }, // ← AGREGADO
+    { path: "/dashboard/chatbot", label: "Chatbot", icon: "🤖" }, 
+    { path: "/dashboard/analytics", label: "analytics", icon: ":)" }, 
+
   ];
 
   const handleLogout = async () => {
