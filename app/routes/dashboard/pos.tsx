@@ -4,6 +4,7 @@ import { useLoaderData, useActionData, Form } from "react-router";
 import QRCode from "react-qr-code";
 import { createPaymentRequest } from "../../lib/open-payments.server";
 import { getSupabaseServer } from "../../lib/supabase.server";
+import { LuImage } from "react-icons/lu";
 
 type Producto = {
   id: number;
@@ -12,10 +13,11 @@ type Producto = {
   precio_venta: number;
   stock: number;
   unidad_medida: string | null;
+  imagen_path: string | null;
 };
 
 type LoaderData = {
-  productos: Producto[];
+  productos: (Producto & { imagen_url: string | null })[];
   walletAddressUrl: string;
 };
 
@@ -38,19 +40,39 @@ function isOk(a: ActionOk | ActionErr | undefined): a is ActionOk {
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
+// Nombre del bucket (server env), con fallback
+const BUCKET = (process.env.PRODUCTS_BUCKET || "product-images").trim();
 
 export async function loader() {
   const supabase = getSupabaseServer();
-  const { data: productos } = await supabase.from("productos").select("*").order("nombre");
+
+  // trae solo columnas necesarias
+  const { data: rows, error } = await supabase
+    .from("productos")
+    .select("id,nombre,descripcion,precio_venta,stock,unidad_medida,imagen_path")
+    .order("nombre");
+
+  if (error) throw new Response(error.message, { status: 500 });
+
+  // construye publicUrl sin llamada de red
+  const productos =
+    (rows ?? []).map((p) => ({
+      ...p,
+      imagen_url: p.imagen_path
+        ? supabase.storage.from(BUCKET).getPublicUrl(p.imagen_path).data.publicUrl
+        : null,
+    })) ?? [];
+
   const walletAddressUrl =
     process.env.WALLET_ADDRESS_URL || "https://ilp.interledger-test.dev/mishop";
-  return { productos: productos || [], walletAddressUrl } satisfies LoaderData;
+
+  return { productos, walletAddressUrl } satisfies LoaderData;
 }
 
 export async function action({ request }: { request: Request }) {
   const formData = await request.formData();
   const action = formData.get("action");
-  
+
   if (action === "create-payment") {
     const amount = parseFloat(String(formData.get("amount") ?? "0"));
     const description = String(formData.get("description") ?? "");
@@ -63,7 +85,7 @@ export async function action({ request }: { request: Request }) {
       return { success: false, error: error?.message || "Error desconocido" } satisfies ActionErr;
     }
   }
-  
+
   return { success: false, error: "Acción no válida" } satisfies ActionErr;
 }
 
@@ -92,7 +114,7 @@ export default function POS() {
     const saved = localStorage.getItem("payerWalletUrl") || "";
     if (saved) setPayerWalletUrl(saved);
   }, []);
-  
+
   useEffect(() => {
     localStorage.setItem("payerWalletUrl", payerWalletUrl);
   }, [payerWalletUrl]);
@@ -112,7 +134,7 @@ export default function POS() {
   };
 
   const removeFromCart = (id: number) => setCart(cart.filter((i) => i.id !== id));
-  
+
   const updateQuantity = (id: number, quantity: number) =>
     quantity <= 0 ? removeFromCart(id) : setCart(cart.map((i) => (i.id === id ? { ...i, quantity } : i)));
 
@@ -131,20 +153,20 @@ export default function POS() {
   function computeWalletSendUrl(walletAddress: string): string {
     const url = (walletAddress || "").trim();
     if (!url) return "https://wallet.interledger-test.dev/send";
-    
+
     try {
       const parsed = new URL(url);
-      
+
       if (parsed.hostname.endsWith("ilp.interledger-test.dev")) {
         return "https://wallet.interledger-test.dev/send";
       }
-      
+
       if (parsed.hostname.endsWith("wallet.interledger-test.dev")) {
         return parsed.pathname.startsWith("/send")
           ? parsed.toString()
           : `${parsed.origin}/send`;
       }
-      
+
       return parsed.origin;
     } catch {
       return "https://wallet.interledger-test.dev/send";
@@ -167,9 +189,9 @@ export default function POS() {
     try {
       const response = await fetch(`${API_BASE}/api/create-payment`, {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json", 
-          Accept: "application/json" 
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
         },
         body: JSON.stringify({
           amount: Number(total.toFixed(2)),
@@ -178,7 +200,7 @@ export default function POS() {
       });
 
       const result = await response.json();
-      
+
       if (!response.ok || !result?.success || !result?.payment?.receiver) {
         throw new Error(result?.message || "No se pudo crear el incoming payment");
       }
@@ -192,7 +214,7 @@ export default function POS() {
         Math.round((payment.amount ?? Number(total.toFixed(2))) * Math.pow(10, assetScale));
 
       setLastReceiver(receiver);
-      
+
       const amountDisplay = (expectedMinor / Math.pow(10, assetScale)).toFixed(assetScale);
       setPaymentDetails({
         receiver,
@@ -213,27 +235,40 @@ export default function POS() {
       }
 
       setTimeout(() => {
-        setStatusMsg(`
+        setStatusMsg(
+          `
 💡 INSTRUCCIONES PARA EL CLIENTE:
 1. Ve a tu wallet (se abrirá automáticamente)
 2. Ve a la sección "Send" o "Enviar"
 3. Pega el Receiver URL
 4. Ingresa el monto: ${amountDisplay} ${assetCode}
 5. Confirma el pago
-        `.trim());
+          `.trim()
+        );
       }, 1000);
 
       const sendUrl = computeWalletSendUrl(payerWalletUrl);
       window.open(sendUrl, "_blank", "noopener,noreferrer");
 
-      setTimeout(() => {
-        startPolling(receiver, expectedMinor, assetCode, assetScale, payerWalletUrl);
-      }, 2000);
+      // 👇 Snapshot de items para el backend
+      const itemsSnapshot = cart.map((i) => ({
+        producto_id: i.id,
+        cantidad: i.quantity,
+        precio_unitario: Number(i.precio_venta),
+      }));
 
+      setTimeout(() => {
+        startPolling(
+          receiver,
+          expectedMinor,
+          assetCode,
+          assetScale,
+          payerWalletUrl,
+          itemsSnapshot             // 👈 enviamos detalle de la venta
+        );
+      }, 2000);
     } catch (error: any) {
-      setStatusMsg(
-        `❌ Error: ${error?.message || "No se pudo iniciar el flujo de pago"}`
-      );
+      setStatusMsg(`❌ Error: ${error?.message || "No se pudo iniciar el flujo de pago"}`);
       setBusy(false);
     }
   };
@@ -243,7 +278,8 @@ export default function POS() {
     expectedMinor: number,
     assetCode: string,
     assetScale: number,
-    customerWallet?: string
+    customerWallet?: string,
+    items?: Array<{ producto_id: number; cantidad: number; precio_unitario: number }>
   ) => {
     if (pollingRef.current) {
       window.clearInterval(pollingRef.current);
@@ -254,7 +290,7 @@ export default function POS() {
 
     const tick = async () => {
       attempts++;
-      
+
       if (attempts > maxAttempts) {
         if (pollingRef.current) {
           window.clearInterval(pollingRef.current);
@@ -276,30 +312,33 @@ export default function POS() {
             assetScale,
             metodo_pago: "open-payments",
             customerWallet: customerWallet || null,
+            items: items || [],    // 👈 el backend insertará detalle_venta y descontará stock
           }),
         });
 
         const data = await res.json();
-        
+
         if (data?.paid) {
           if (pollingRef.current) {
             window.clearInterval(pollingRef.current);
             pollingRef.current = null;
           }
-          
+
           setCart([]);
           setPaymentDetails(null);
           setBusy(false);
-          
-          setStatusMsg(`
+
+          setStatusMsg(
+            `
 🎉 ¡PAGO COMPLETADO!
 ━━━━━━━━━━━━━━━━━━
 ✅ Venta registrada
 📝 ID: ${data?.ventaId ?? "—"}
 💰 Monto recibido: ${(data?.receivedMinor / Math.pow(10, assetScale)).toFixed(assetScale)} ${assetCode}
 ━━━━━━━━━━━━━━━━━━
-          `.trim());
-          
+          `.trim()
+          );
+
           setTimeout(() => {
             setStatusMsg("");
             setLastReceiver("");
@@ -308,8 +347,9 @@ export default function POS() {
           const received = Number(data?.receivedMinor ?? 0);
           const expected = Number(data?.expectedMinor ?? expectedMinor);
           const percentage = Math.min(100, Math.round((received / Math.max(1, expected)) * 100));
-          
-          setStatusMsg(`
+
+          setStatusMsg(
+            `
 ⏳ Esperando confirmación del pago...
 ━━━━━━━━━━━━━━━━━━
 📊 Progreso: ${percentage}%
@@ -317,7 +357,8 @@ export default function POS() {
 🎯 Esperado: ${(expected / Math.pow(10, assetScale)).toFixed(assetScale)} ${assetCode}
 ━━━━━━━━━━━━━━━━━━
 ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente confirme..."}
-          `.trim());
+          `.trim()
+          );
         }
       } catch (error) {
         console.error("Error en polling:", error);
@@ -343,6 +384,9 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
     return 0;
   })();
 
+  const transparentPixel =
+    "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -357,7 +401,7 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Productos Disponibles</h3>
-            
+
             {productos.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-gray-600">No hay productos disponibles.</p>
@@ -365,30 +409,50 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {productos.map((p: any) => (
+                {productos.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => addToCart(p)}
                     disabled={p.stock <= 0}
-                    className={`p-4 border rounded-lg transition-all text-left ${
+                    className={`p-3 border rounded-lg transition-all text-left ${
                       p.stock <= 0
-                        ? "border-gray-200 bg-gray-50 cursor-not-allowed opacity-50"
+                        ? "border-gray-200 bg-gray-50 cursor-not-allowed opacity-60"
                         : "border-gray-200 hover:border-blue-400 hover:bg-blue-50 hover:shadow-md"
                     }`}
+                    title={p.stock <= 0 ? "Sin stock" : "Agregar al carrito"}
                   >
-                    <div className="font-medium text-gray-900">{p.nombre}</div>
-                    <div className="text-sm text-gray-600 mt-1 line-clamp-2">
-                      {p.descripcion || "Sin descripción"}
-                    </div>
-                    <div className="text-lg font-bold text-blue-600 mt-2">
-                      ${Number(p.precio_venta).toFixed(2)}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      {p.stock > 0 ? (
-                        <>Stock: {p.stock} {p.unidad_medida || ""}</>
+                    {/* Imagen del producto */}
+                    <div className="aspect-square w-full overflow-hidden rounded-md border border-gray-200 bg-white">
+                      {p.imagen_url ? (
+                        <img
+                          src={p.imagen_url}
+                          alt={p.nombre}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
                       ) : (
-                        <span className="text-red-600 font-medium">Sin stock</span>
+                        <div className="flex h-full w-full items-center justify-center text-gray-400">
+                          <LuImage className="h-8 w-8" />
+                        </div>
                       )}
+                    </div>
+
+                    {/* Info */}
+                    <div className="mt-2">
+                      <div className="font-medium text-gray-900 line-clamp-1">{p.nombre}</div>
+                      <div className="text-xs text-gray-600 mt-0.5 line-clamp-2">
+                        {p.descripcion || "Sin descripción"}
+                      </div>
+                      <div className="text-base font-bold text-blue-600 mt-2">
+                        ${Number(p.precio_venta).toFixed(2)}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {p.stock > 0 ? (
+                          <>Stock: {p.stock} {p.unidad_medida || ""}</>
+                        ) : (
+                          <span className="text-red-600 font-medium">Sin stock</span>
+                        )}
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -411,7 +475,28 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
               <>
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {cart.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                    >
+                      {/* miniatura */}
+                      <div className="mr-3 shrink-0">
+                        <div className="h-12 w-12 overflow-hidden rounded-md border border-gray-200 bg-white">
+                          {item.imagen_url ? (
+                            <img
+                              src={item.imagen_url}
+                              alt={item.nombre}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-gray-400">
+                              <LuImage className="h-5 w-5" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-gray-900 truncate">{item.nombre}</div>
                         <div className="text-sm text-gray-600">
@@ -421,6 +506,7 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
                           = ${(Number(item.precio_venta) * item.quantity).toFixed(2)}
                         </div>
                       </div>
+
                       <div className="flex items-center space-x-2 ml-4">
                         <button
                           onClick={() => updateQuantity(item.id, item.quantity - 1)}

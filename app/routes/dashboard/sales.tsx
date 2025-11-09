@@ -7,9 +7,9 @@ import {
   useSearchParams,
   useSubmit,
 } from "react-router";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { getSupabaseServer } from "../../lib/supabase.server";
-import { LuSearch, LuCalendar, LuFilter, LuX } from "react-icons/lu";
+import { LuSearch, LuCalendar, LuFilter, LuX, LuChevronDown, LuChevronRight } from "react-icons/lu";
 
 /* ----------------------------- Tipos ----------------------------- */
 type Venta = {
@@ -17,13 +17,32 @@ type Venta = {
   fecha: string | null; // ISO
   total: string | number;
   metodo_pago: string | null;
-  id_cliente: number | null;
-  id_usuario: number | null;
-  id_sucursal: number | null;
+  receiver: string | null;
+  payer_wallet: string | null;
+};
+
+type ItemPreview = {
+  nombre: string;
+  imagen_url: string | null;
+};
+
+type DetalleUI = {
+  id_producto: number;
+  nombre: string;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+  imagen_url: string | null;
+};
+
+type VentaUI = Venta & {
+  itemsPreview: ItemPreview[];
+  itemsCount: number;
+  items: DetalleUI[];
 };
 
 type LoaderData = {
-  ventas: Venta[];
+  ventas: VentaUI[];
   page: number;
   pageSize: number;
   totalRows: number;
@@ -40,6 +59,7 @@ type LoaderData = {
 
 /* --------------------------- Utilidades -------------------------- */
 const PAGE_SIZE_DEFAULT = 10;
+const BUCKET = (process.env.PRODUCTS_BUCKET || "product-images").trim();
 
 const parsePositiveInt = (v: string | null, fb: number) =>
   Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : fb;
@@ -73,23 +93,29 @@ export async function loader({ request }: { request: Request }) {
   let qb = supabase
     .from("ventas")
     .select(
-      "id, fecha, total, metodo_pago, id_cliente, id_usuario, id_sucursal",
+      "id, fecha, total, metodo_pago, receiver, payer_wallet",
       { count: "exact", head: false }
     );
 
   if (q) {
     const qNum = Number(q);
-    qb = Number.isFinite(qNum)
-      ? qb.or(`metodo_pago.ilike.%${q}%,id.eq.${Math.floor(qNum)}`)
-      : qb.ilike("metodo_pago", `%${q}%`);
+    // Busca por método, id, receiver y payer_wallet
+    qb = qb.or(
+      Number.isFinite(qNum)
+        ? `metodo_pago.ilike.%${q}%,receiver.ilike.%${q}%,payer_wallet.ilike.%${q}%,id.eq.${Math.floor(
+            qNum
+          )}`
+        : `metodo_pago.ilike.%${q}%,receiver.ilike.%${q}%,payer_wallet.ilike.%${q}%`
+    );
   }
   if (metodo) qb = qb.eq("metodo_pago", metodo);
   if (from) qb = qb.gte("fecha", new Date(`${from}T00:00:00`).toISOString());
   if (to) qb = qb.lt("fecha", addDaysISO(to, 1));
 
   const orderCol = sort === "total" ? "total" : "fecha";
-  qb = qb.order(orderCol, { ascending: dir === "asc", nullsFirst: false })
-         .order("id", { ascending: false, nullsFirst: false });
+  qb = qb
+    .order(orderCol, { ascending: dir === "asc", nullsFirst: false })
+    .order("id", { ascending: false, nullsFirst: false });
 
   const fromIdx = (page - 1) * pageSize;
   const toIdx = fromIdx + pageSize - 1;
@@ -98,6 +124,137 @@ export async function loader({ request }: { request: Request }) {
   const { data: ventas, count, error } = await qb;
   if (error) throw new Response(error.message, { status: 500 });
 
+  // ========= Detalles por venta (intenta múltiples tablas de detalle) =========
+  const ventaIds = (ventas ?? []).map((v) => v.id);
+  let detalle: any[] = [];
+  let detalleTable: string | null = null;
+
+  async function tryFetchDetalle(tbl: string) {
+    // normalizamos por si el schema usa venta_id o id_venta
+    const { data, error: derr } = await supabase
+      .from(tbl)
+      .select("*")
+      .in("id_venta", ventaIds)
+      .order("id_venta", { ascending: false });
+    if (!derr && data && data.length) return data;
+
+    const { data: dataAlt, error: derrAlt } = await supabase
+      .from(tbl)
+      .select("*")
+      .in("venta_id", ventaIds)
+      .order("venta_id", { ascending: false });
+    if (derrAlt) throw derrAlt;
+    return dataAlt || [];
+  }
+
+  if (ventaIds.length) {
+    // Primero la tabla real del schema: detalle_venta
+    for (const tbl of ["detalle_venta", "ventas_detalle", "venta_detalle", "ventas_items"]) {
+      try {
+        const data = await tryFetchDetalle(tbl);
+        if (data.length) {
+          detalle = data;
+          detalleTable = tbl;
+          break;
+        }
+      } catch {
+        // probar siguiente
+      }
+    }
+  }
+
+  // Obtén ids de productos para enriquecer con nombre/imagen
+  let productosMap = new Map<number, { id: number; nombre: string; imagen_path: string | null }>();
+  if (detalleTable && detalle.length) {
+    const productoIds = new Set<number>();
+    for (const row of detalle) {
+      const pid =
+        row.id_producto ??
+        row.producto_id ??
+        row.id_producto_fk ??
+        row.producto ??
+        null;
+      if (pid && Number.isFinite(Number(pid))) productoIds.add(Number(pid));
+    }
+
+    if (productoIds.size) {
+      const { data: productosData } = await supabase
+        .from("productos")
+        .select("id,nombre,imagen_path")
+        .in("id", Array.from(productoIds));
+      for (const p of productosData ?? []) {
+        productosMap.set(p.id, {
+          id: p.id,
+          nombre: p.nombre,
+          imagen_path: p.imagen_path ?? null,
+        });
+      }
+    }
+  }
+
+  // Armar estructuras por venta
+  const detallePorVenta = new Map<number, any[]>();
+  for (const row of detalle) {
+    const vid = Number(row.id_venta ?? row.venta_id);
+    if (!detallePorVenta.has(vid)) detallePorVenta.set(vid, []);
+    detallePorVenta.get(vid)!.push(row);
+  }
+
+  const withPreviews: VentaUI[] = (ventas ?? []).map((v) => {
+    const rows = detallePorVenta.get(v.id) ?? [];
+
+    // Previews (primeras 3 imágenes/nombres)
+    const previews: ItemPreview[] = rows.slice(0, 3).map((r) => {
+      const pid =
+        r.id_producto ??
+        r.producto_id ??
+        r.id_producto_fk ??
+        r.producto ??
+        null;
+      const prod = pid ? productosMap.get(Number(pid)) : undefined;
+      const url = prod?.imagen_path
+        ? supabase.storage.from(BUCKET).getPublicUrl(prod.imagen_path).data.publicUrl
+        : null;
+      return { nombre: prod?.nombre ?? "Producto", imagen_url: url };
+    });
+
+    // Detalle completo
+    const items: DetalleUI[] = rows.map((r) => {
+      const pid =
+        r.id_producto ??
+        r.producto_id ??
+        r.id_producto_fk ??
+        r.producto ??
+        null;
+      const prod = pid ? productosMap.get(Number(pid)) : undefined;
+      const cantidad = Number(r.cantidad ?? r.qty ?? r.cant ?? 1);
+      const precio_unitario = Number(r.precio_unitario ?? r.precio ?? r.unit_price ?? 0);
+      const subtotal = Number(
+        (r.subtotal ?? cantidad * precio_unitario).toFixed(2)
+      );
+      const imagen_url = prod?.imagen_path
+        ? supabase.storage.from(BUCKET).getPublicUrl(prod.imagen_path).data.publicUrl
+        : null;
+
+      return {
+        id_producto: Number(pid ?? 0),
+        nombre: prod?.nombre ?? "Producto",
+        cantidad,
+        precio_unitario,
+        subtotal,
+        imagen_url,
+      };
+    });
+
+    return {
+      ...v,
+      itemsPreview: previews,
+      itemsCount: rows.length,
+      items,
+    };
+  });
+
+  // Métodos de pago disponibles (para filtros)
   const { data: metodosRows } = await supabase
     .from("ventas")
     .select("metodo_pago")
@@ -113,7 +270,7 @@ export async function loader({ request }: { request: Request }) {
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
 
   return {
-    ventas: ventas ?? [],
+    ventas: withPreviews,
     page,
     pageSize,
     totalRows,
@@ -135,6 +292,7 @@ export default function Sales() {
   const navigation = useNavigation();
   const [searchParams] = useSearchParams();
   const submit = useSubmit();
+  const [openRows, setOpenRows] = useState<Record<number, boolean>>({}); // ventas abiertas
 
   const isLoading = navigation.state !== "idle";
 
@@ -200,6 +358,9 @@ export default function Sales() {
     return `?${sp.toString()}`;
   };
 
+  const toggleRow = (id: number) =>
+    setOpenRows((s) => ({ ...s, [id]: !s[id] }));
+
   return (
     <main className="page space-y-6 md:space-y-7">
       {/* Header */}
@@ -239,7 +400,6 @@ export default function Sales() {
           <span className="text-sm font-medium">Filtros</span>
         </div>
 
-        {/* separador visual */}
         <div className="mb-4 h-px bg-gray-100" />
 
         <Form
@@ -259,9 +419,9 @@ export default function Sales() {
                 name="q"
                 type="text"
                 defaultValue={data.q}
-                placeholder="ID o método de pago…"
+                placeholder="ID, método, receiver o payer…"
                 className="w-full rounded-lg border border-gray-300 pl-9 pr-3 py-2 text-sm placeholder:text-gray-400 focus:border-gray-900 focus:outline-none focus:ring-0"
-                aria-label="Buscar por ID o método de pago"
+                aria-label="Buscar por ID, método, receiver o payer"
               />
             </div>
           </div>
@@ -377,44 +537,173 @@ export default function Sales() {
           <table className="min-w-full text-left">
             <thead>
               <tr>
+                <Th /> {/* columna del toggle */}
                 <Th>ID</Th>
                 <Th>
                   <Link to={toggleSort("fecha")} className="inline-flex items-center gap-1 hover:underline">
                     Fecha <SortBadge active={data.sort === "fecha"} dir={data.dir} />
                   </Link>
                 </Th>
+                {/* Nueva columna: Productos */}
+                <Th>Productos</Th>
                 <Th>
                   <Link to={toggleSort("total")} className="inline-flex items-center gap-1 hover:underline">
                     Total <SortBadge active={data.sort === "total"} dir={data.dir} />
                   </Link>
                 </Th>
                 <Th>Método</Th>
-                <Th>Cliente</Th>
-                <Th>Usuario</Th>
-                <Th>Sucursal</Th>
+                <Th>Payer</Th>
+                <Th>Receiver</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
-                <SkeletonRows cols={7} />
+                <SkeletonRows cols={8} />
               ) : data.ventas.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-500">
+                  <td colSpan={8} className="py-12 text-center text-gray-500">
                     No hay ventas registradas con estos filtros.
                   </td>
                 </tr>
               ) : (
-                data.ventas.map((v) => (
-                  <tr key={v.id} className="hover:bg-gray-50">
-                    <Td className="font-medium text-gray-900">{v.id}</Td>
-                    <Td>{fmtDate(v.fecha)}</Td>
-                    <Td className="font-semibold">{currency.format(Number(v.total))}</Td>
-                    <Td className="capitalize">{v.metodo_pago ?? "—"}</Td>
-                    <Td className="text-gray-600">{v.id_cliente ?? "—"}</Td>
-                    <Td className="text-gray-600">{v.id_usuario ?? "—"}</Td>
-                    <Td className="text-gray-600">{v.id_sucursal ?? "—"}</Td>
-                  </tr>
-                ))
+                data.ventas.flatMap((v) => {
+                  const isOpen = !!openRows[v.id];
+                  return (
+                    [
+                      <tr key={v.id} className="hover:bg-gray-50">
+                        {/* Toggle */}
+                        <Td className="w-10">
+                          <button
+                            onClick={() => toggleRow(v.id)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 hover:bg-gray-50"
+                            aria-label={isOpen ? "Ocultar detalles" : "Ver detalles"}
+                            title={isOpen ? "Ocultar detalles" : "Ver detalles"}
+                          >
+                            {isOpen ? <LuChevronDown className="h-4 w-4" /> : <LuChevronRight className="h-4 w-4" />}
+                          </button>
+                        </Td>
+                        <Td className="font-medium text-gray-900">{v.id}</Td>
+                        <Td>{fmtDate(v.fecha)}</Td>
+
+                        {/* Productos preview */}
+                        <Td>
+                          {v.itemsCount === 0 ? (
+                            <span className="text-gray-500">—</span>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <div className="flex -space-x-2">
+                                {v.itemsPreview.map((it, i) => (
+                                  <img
+                                    key={i}
+                                    src={
+                                      it.imagen_url ||
+                                      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+                                    }
+                                    alt={it.nombre}
+                                    title={it.nombre}
+                                    className="h-8 w-8 rounded-md border border-gray-200 object-cover"
+                                    loading="lazy"
+                                  />
+                                ))}
+                              </div>
+                              {v.itemsCount > v.itemsPreview.length && (
+                                <span className="text-xs text-gray-600">
+                                  +{v.itemsCount - v.itemsPreview.length}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </Td>
+
+                        <Td className="font-semibold">{currency.format(Number(v.total))}</Td>
+                        <Td className="capitalize">{v.metodo_pago ?? "—"}</Td>
+                        <Td className="text-gray-600 truncate max-w-[260px]">
+                          {v.payer_wallet ? (
+                            <a
+                              href={v.payer_wallet}
+                              className="text-blue-700 hover:underline"
+                              target="_blank"
+                              rel="noreferrer"
+                              title={v.payer_wallet}
+                            >
+                              {v.payer_wallet}
+                            </a>
+                          ) : (
+                            "—"
+                          )}
+                        </Td>
+                        <Td className="text-gray-600 truncate max-w-[260px]">
+                          {v.receiver ? (
+                            <a
+                              href={v.receiver}
+                              className="text-blue-700 hover:underline"
+                              target="_blank"
+                              rel="noreferrer"
+                              title={v.receiver}
+                            >
+                              {v.receiver}
+                            </a>
+                          ) : (
+                            "—"
+                          )}
+                        </Td>
+                      </tr>,
+                      isOpen ? (
+                        <tr key={`d-${v.id}`} className="bg-gray-50/50">
+                          <td colSpan={8} className="px-4 py-4">
+                            {v.items.length === 0 ? (
+                              <div className="text-sm text-gray-600">No hay detalles para esta venta.</div>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                                  Detalle de la venta
+                                </div>
+                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                  {v.items.map((it, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3"
+                                    >
+                                      <div className="h-12 w-12 overflow-hidden rounded-md border border-gray-200 bg-gray-100 shrink-0">
+                                        {it.imagen_url ? (
+                                          <img
+                                            src={it.imagen_url}
+                                            alt={it.nombre}
+                                            className="h-full w-full object-cover"
+                                            loading="lazy"
+                                          />
+                                        ) : (
+                                          <div className="h-full w-full" />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="truncate font-medium text-gray-900">{it.nombre}</div>
+                                        <div className="text-xs text-gray-600">
+                                          Cant: <span className="font-medium">{it.cantidad}</span> · PU:{" "}
+                                          <span className="font-medium">
+                                            {currency.format(Number(it.precio_unitario))}
+                                          </span>
+                                        </div>
+                                        <div className="text-sm font-semibold text-blue-600">
+                                          {currency.format(Number(it.subtotal))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="flex justify-end pt-2">
+                                  <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                                    Total: <strong>{currency.format(Number(v.total))}</strong>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ) : null,
+                    ].filter(Boolean) as ReactNode[]
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -507,7 +796,7 @@ function Chip({ label, to }: { label: string; to: string }) {
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
+function Th({ children }: { children?: ReactNode }) {
   return (
     <th className="px-4 py-3 text-[11px] uppercase tracking-wide text-gray-500 bg-gray-50">
       {children}
@@ -518,7 +807,7 @@ function Td({
   children,
   className = "",
 }: {
-  children: React.ReactNode;
+  children?: ReactNode;
   className?: string;
 }) {
   return <td className={`px-4 py-3 text-[13px] text-gray-700 ${className}`}>{children}</td>;
