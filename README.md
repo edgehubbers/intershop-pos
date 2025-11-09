@@ -1,87 +1,141 @@
-# Welcome to React Router!
+Intershop POS
 
-A modern, production-ready template for building full-stack React applications using React Router.
+Punto de venta (POS) con React Router 7 + Vite + Tailwind, backend Node/Express, base de datos en Supabase y cobros con Open Payments (Interledger).
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+Demo login (opcional):
+correo: emi@interledger.com
+contraseña: 123456
+También puedes registrarte y usar tu propia cuenta.
 
-## Features
+⚙️ Requisitos
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
+Node.js ≥ 18 (recomendado 20+)
 
-## Getting Started
+npm (o pnpm/yarn si prefieres, aquí usamos npm)
 
-### Installation
+Una cuenta/proyecto en Supabase (URL + Anon Key)
 
-Install the dependencies:
+Una wallet Open Payments de prueba (Interledger Testnet) para el comercio y fondos en tu wallet del cliente para hacer pagos
 
-```bash
+📁 Estructura (resumen)
+app/
+  components/
+    animation/ (TextType, BlurText, etc.)
+    ui/
+  lib/ (open-payments.server.ts, supabase.*)
+  routes/ (dashboard, tienda, auth, etc.)
+public/
+server/
+  lib/ (index.ts y rutas/servicios del backend Express)
+
+🧩 Instalación
 npm install
-```
 
-### Development
+▶️ Ejecutar en local
 
-Start the development server with HMR:
+Arranca frontend + backend juntos (modo dev con HMR):
 
-```bash
-npm run dev
-```
+npm run dev:all
 
-Your application will be available at `http://localhost:5173`.
 
-## Building for Production
+Frontend: http://localhost:5173
 
-Create a production build:
+Backend: http://localhost:3001
 
-```bash
+Scripts disponibles:
+
+npm run dev – solo React Router (front)
+
+npm run dev:server – solo backend Express (con tsx)
+
+npm run dev:all – ambos en paralelo (recomendado)
+
+npm run build – build de producción (SSR + cliente)
+
+npm run start – sirve el build SSR con @react-router/serve
+
+npm run typecheck – tipos TS
+
+🔑 Acceso a la app
+
+Ve a http://localhost:5173/login
+
+Inicia sesión con:
+
+emi@interledger.com
+ / 123456 (demo)
+
+o regístrate con tu correo
+
+Entra al Punto de Venta (POS) y agrega productos al carrito.
+
+💸 Flujo de pago (Interledger / Open Payments)
+
+Desde el POS, al finalizar la compra se genera un Incoming Payment (receiver URL) en la cuenta del comercio.
+
+En tu wallet de Interledger (cliente) abre Send y pega ese receiver en “Wallet address or Incoming payment”.
+
+Autoriza el pago (asegúrate de tener fondos).
+
+El backend hará polling al incoming y, al recibir los fondos esperados, marcará la venta como pagada y la registrará en la base de datos.
+
+La sección de análisis/IA puede usar estos datos para apoyar decisiones del negocio.
+
+Si una wallet de prueba te redirige a /no-access?... con el error “A 'cache-control' header is missing or empty”, este proyecto ya incluye un finish callback en el backend que devuelve Cache-Control: no-store (requisito de seguridad). Asegúrate de tener API_BASE/FRONTEND_URL correctos.
+
+🗃️ Esquema de Base de Datos (Supabase)
+
+Tablas principales:
+
+productos, categorias, productos_online
+
+clientes
+
+pedidos_online + detalle_pedido (checkout web)
+
+ventas + detalle_venta (POS)
+
+store_settings
+
+Relaciones clave:
+
+detalle_pedido.id_pedido → pedidos_online.id
+
+detalle_pedido.id_producto → productos.id
+
+detalle_venta.id_venta → ventas.id
+
+detalle_venta.id_producto → productos.id
+
+pedidos_online.id_cliente → clientes.id
+
+pedidos_online.receiver y ventas.receiver guardan el receiver; payer_wallet guarda la wallet del pagador.
+
+🔌 API principal (backend)
+
+GET /api/store/products
+Lista de productos disponibles públicamente.
+
+POST /api/tienda/pedido
+Crea pedido online (detalle incluido).
+
+POST /api/op/checkout/start
+Crea incoming payment del comercio y arranca grant interactivo del cliente (GNAP).
+Devuelve redirect (wallet), continue y payment.
+
+POST /api/op/checkout/continue
+Finaliza el grant con interact_ref, crea Quote y Outgoing Payment.
+
+POST /api/tienda/confirmar-pago
+Polling del incoming para confirmar la venta y marcarla como pagada.
+
+Además, existe /op/callback (GET) en el backend como finish de GNAP con Cache-Control: no-store que redirige al front (/tienda/callback).
+
+🚀 Build y despliegue
+Build local
 npm run build
-```
 
-## Deployment
 
-### Docker Deployment
 
-To build and run using Docker:
 
-```bash
-docker build -t my-app .
 
-# Run the container
-docker run -p 3000:3000 my-app
-```
-
-The containerized application can be deployed to any platform that supports Docker, including:
-
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
-
-### DIY Deployment
-
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
-
-Make sure to deploy the output of `npm run build`
-
-```
-├── package.json
-├── package-lock.json (or pnpm-lock.yaml, or bun.lockb)
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
-
-Built with ❤️ using React Router.
