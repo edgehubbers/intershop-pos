@@ -1,3 +1,5 @@
+//app\routes\dashboard\products.tsx
+
 import {
   Form,
   Link,

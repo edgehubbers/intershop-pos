@@ -1,8 +1,7 @@
 // app/routes/dashboard/pos.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLoaderData, useActionData, Form } from "react-router";
+import { useLoaderData } from "react-router";
 import QRCode from "react-qr-code";
-import { createPaymentRequest } from "../../lib/open-payments.server";
 import { getSupabaseServer } from "../../lib/supabase.server";
 import { LuImage } from "react-icons/lu";
 
@@ -18,13 +17,11 @@ type Producto = {
 
 type LoaderData = {
   productos: (Producto & { imagen_url: string | null })[];
-  walletAddressUrl: string;
 };
 
 type PaymentPayload = {
   receiver?: string;
   paymentUrl?: string;
-  walletAddressUrl?: string;
   assetCode?: string;
   assetScale?: number;
   expectedMinor?: number;
@@ -32,21 +29,12 @@ type PaymentPayload = {
   description: string;
 };
 
-type ActionOk = { success: true; payment: PaymentPayload; walletAddressUrl?: string };
-type ActionErr = { success: false; error: string };
-
-function isOk(a: ActionOk | ActionErr | undefined): a is ActionOk {
-  return !!a && (a as any).success === true;
-}
-
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
-// Nombre del bucket (server env), con fallback
 const BUCKET = (process.env.PRODUCTS_BUCKET || "product-images").trim();
 
+// ------- Loader: catálogo de productos -------
 export async function loader() {
   const supabase = getSupabaseServer();
-
-  // trae solo columnas necesarias
   const { data: rows, error } = await supabase
     .from("productos")
     .select("id,nombre,descripcion,precio_venta,stock,unidad_medida,imagen_path")
@@ -54,7 +42,6 @@ export async function loader() {
 
   if (error) throw new Response(error.message, { status: 500 });
 
-  // construye publicUrl sin llamada de red
   const productos =
     (rows ?? []).map((p) => ({
       ...p,
@@ -63,42 +50,18 @@ export async function loader() {
         : null,
     })) ?? [];
 
-  const walletAddressUrl =
-    process.env.WALLET_ADDRESS_URL || "https://ilp.interledger-test.dev/mishop";
-
-  return { productos, walletAddressUrl } satisfies LoaderData;
-}
-
-export async function action({ request }: { request: Request }) {
-  const formData = await request.formData();
-  const action = formData.get("action");
-
-  if (action === "create-payment") {
-    const amount = parseFloat(String(formData.get("amount") ?? "0"));
-    const description = String(formData.get("description") ?? "");
-    try {
-      const payment = await createPaymentRequest(amount, description);
-      const walletAddressUrl =
-        process.env.WALLET_ADDRESS_URL || "https://ilp.interledger-test.dev/mishop";
-      return { success: true, payment, walletAddressUrl } satisfies ActionOk;
-    } catch (error: any) {
-      return { success: false, error: error?.message || "Error desconocido" } satisfies ActionErr;
-    }
-  }
-
-  return { success: false, error: "Acción no válida" } satisfies ActionErr;
+  return { productos } satisfies LoaderData;
 }
 
 export default function POS() {
-  const { productos, walletAddressUrl } = useLoaderData<typeof loader>();
-  const actionData = useActionData<ActionOk | ActionErr>();
-  const ok = isOk(actionData) ? actionData : undefined;
+  const { productos } = useLoaderData<typeof loader>();
 
   const [cart, setCart] = useState<any[]>([]);
-  const [payerWalletUrl, setPayerWalletUrl] = useState<string>("");
+  const [payerWalletUrl, setPayerWalletUrl] = useState<string>(""); // 👈 solo para REGISTRO en la venta
   const [busy, setBusy] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string>("");
   const [lastReceiver, setLastReceiver] = useState<string>("");
+
   const [paymentDetails, setPaymentDetails] = useState<{
     receiver: string;
     amount: string;
@@ -108,16 +71,6 @@ export default function POS() {
   } | null>(null);
 
   const pollingRef = useRef<number | null>(null);
-
-  // Persistir wallet del cliente
-  useEffect(() => {
-    const saved = localStorage.getItem("payerWalletUrl") || "";
-    if (saved) setPayerWalletUrl(saved);
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("payerWalletUrl", payerWalletUrl);
-  }, [payerWalletUrl]);
 
   const total = useMemo(
     () => cart.reduce((sum, item) => sum + Number(item.precio_venta) * item.quantity, 0),
@@ -148,51 +101,20 @@ export default function POS() {
     }
   };
 
-  const receiverFromAction: string = ok?.payment.receiver || ok?.payment.paymentUrl || "";
-
-  function computeWalletSendUrl(walletAddress: string): string {
-    const url = (walletAddress || "").trim();
-    if (!url) return "https://wallet.interledger-test.dev/send";
-
-    try {
-      const parsed = new URL(url);
-
-      if (parsed.hostname.endsWith("ilp.interledger-test.dev")) {
-        return "https://wallet.interledger-test.dev/send";
-      }
-
-      if (parsed.hostname.endsWith("wallet.interledger-test.dev")) {
-        return parsed.pathname.startsWith("/send")
-          ? parsed.toString()
-          : `${parsed.origin}/send`;
-      }
-
-      return parsed.origin;
-    } catch {
-      return "https://wallet.interledger-test.dev/send";
-    }
-  }
-
-  const initiatePayment = async () => {
-    if (!payerWalletUrl.trim()) {
-      setStatusMsg("⚠️ Debes ingresar la wallet address del cliente.");
-      return;
-    }
+  // ------- Generar receiver y empezar polling -------
+  const generarReceiver = async () => {
     if (total <= 0) {
       setStatusMsg("⚠️ El total debe ser mayor a 0.");
       return;
     }
 
     setBusy(true);
-    setStatusMsg("📝 Creando incoming payment...");
+    setStatusMsg("📝 Creando incoming payment (receiver)...");
 
     try {
       const response = await fetch(`${API_BASE}/api/create-payment`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
           amount: Number(total.toFixed(2)),
           description: `Venta POS: ${cart.map((i) => i.nombre).join(", ")}`,
@@ -206,7 +128,7 @@ export default function POS() {
       }
 
       const payment = result.payment as PaymentPayload;
-      const receiver = payment.receiver!;
+      const receiver = payment.receiver || payment.paymentUrl!;
       const assetScale = payment.assetScale ?? 2;
       const assetCode = payment.assetCode ?? "USD";
       const expectedMinor =
@@ -224,51 +146,19 @@ export default function POS() {
         assetScale,
       });
 
-      setStatusMsg("✅ Incoming payment creado. Preparando datos para el cliente...");
+      setStatusMsg("✅ Receiver creado. Esperando pago del cliente…");
 
-      const paymentInfo = `Receiver: ${receiver}\nMonto: ${amountDisplay} ${assetCode}`;
-      try {
-        await navigator.clipboard.writeText(paymentInfo);
-        setStatusMsg("📋 Datos copiados. Instruyendo al cliente...");
-      } catch {
-        setStatusMsg("⚠️ No se pudo copiar automáticamente. Usa los botones de copiar.");
-      }
-
-      setTimeout(() => {
-        setStatusMsg(
-          `
-💡 INSTRUCCIONES PARA EL CLIENTE:
-1. Ve a tu wallet (se abrirá automáticamente)
-2. Ve a la sección "Send" o "Enviar"
-3. Pega el Receiver URL
-4. Ingresa el monto: ${amountDisplay} ${assetCode}
-5. Confirma el pago
-          `.trim()
-        );
-      }, 1000);
-
-      const sendUrl = computeWalletSendUrl(payerWalletUrl);
-      window.open(sendUrl, "_blank", "noopener,noreferrer");
-
-      // 👇 Snapshot de items para el backend
+      // Snapshot de items para registrar detalle_venta cuando se confirme
       const itemsSnapshot = cart.map((i) => ({
         producto_id: i.id,
         cantidad: i.quantity,
         precio_unitario: Number(i.precio_venta),
       }));
 
-      setTimeout(() => {
-        startPolling(
-          receiver,
-          expectedMinor,
-          assetCode,
-          assetScale,
-          payerWalletUrl,
-          itemsSnapshot             // 👈 enviamos detalle de la venta
-        );
-      }, 2000);
+      // Arranca polling y pasa payerWalletUrl (opcional) solo para guardar en DB
+      startPolling(receiver, expectedMinor, assetCode, assetScale, payerWalletUrl || null, itemsSnapshot);
     } catch (error: any) {
-      setStatusMsg(`❌ Error: ${error?.message || "No se pudo iniciar el flujo de pago"}`);
+      setStatusMsg(`❌ Error: ${error?.message || "No se pudo crear el receiver"}`);
       setBusy(false);
     }
   };
@@ -278,19 +168,16 @@ export default function POS() {
     expectedMinor: number,
     assetCode: string,
     assetScale: number,
-    customerWallet?: string,
+    customerWallet?: string | null, // 👈 se manda al backend para guardar en ventas.payer_wallet
     items?: Array<{ producto_id: number; cantidad: number; precio_unitario: number }>
   ) => {
-    if (pollingRef.current) {
-      window.clearInterval(pollingRef.current);
-    }
+    if (pollingRef.current) window.clearInterval(pollingRef.current);
 
     let attempts = 0;
-    const maxAttempts = 120;
+    const maxAttempts = 120; // ~5 min a 2.5s
 
     const tick = async () => {
       attempts++;
-
       if (attempts > maxAttempts) {
         if (pollingRef.current) {
           window.clearInterval(pollingRef.current);
@@ -311,8 +198,8 @@ export default function POS() {
             assetCode,
             assetScale,
             metodo_pago: "open-payments",
-            customerWallet: customerWallet || null,
-            items: items || [],    // 👈 el backend insertará detalle_venta y descontará stock
+            customerWallet: customerWallet || null, // 👈 aquí viaja al backend
+            items: items || [],
           }),
         });
 
@@ -356,7 +243,7 @@ export default function POS() {
 💵 Recibido: ${(received / Math.pow(10, assetScale)).toFixed(assetScale)} ${assetCode}
 🎯 Esperado: ${(expected / Math.pow(10, assetScale)).toFixed(assetScale)} ${assetCode}
 ━━━━━━━━━━━━━━━━━━
-${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente confirme..."}
+${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Aún sin movimientos..."}
           `.trim()
           );
         }
@@ -371,9 +258,7 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
 
   useEffect(() => {
     return () => {
-      if (pollingRef.current) {
-        window.clearInterval(pollingRef.current);
-      }
+      if (pollingRef.current) window.clearInterval(pollingRef.current);
     };
   }, []);
 
@@ -384,20 +269,17 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
     return 0;
   })();
 
-  const transparentPixel =
-    "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-gray-900">Punto de Venta</h2>
-          <p className="text-gray-600">Selecciona productos y procesa pagos con Open Payments</p>
+          <p className="text-gray-600">Selecciona productos y genera el Receiver para cobrar</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Catálogo de Productos */}
+        {/* Catálogo */}
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Productos Disponibles</h3>
@@ -421,15 +303,10 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
                     }`}
                     title={p.stock <= 0 ? "Sin stock" : "Agregar al carrito"}
                   >
-                    {/* Imagen del producto */}
+                    {/* Imagen */}
                     <div className="aspect-square w-full overflow-hidden rounded-md border border-gray-200 bg-white">
                       {p.imagen_url ? (
-                        <img
-                          src={p.imagen_url}
-                          alt={p.nombre}
-                          className="h-full w-full object-cover"
-                          loading="lazy"
-                        />
+                        <img src={p.imagen_url} alt={p.nombre} className="h-full w-full object-cover" loading="lazy" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-gray-400">
                           <LuImage className="h-8 w-8" />
@@ -440,9 +317,7 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
                     {/* Info */}
                     <div className="mt-2">
                       <div className="font-medium text-gray-900 line-clamp-1">{p.nombre}</div>
-                      <div className="text-xs text-gray-600 mt-0.5 line-clamp-2">
-                        {p.descripcion || "Sin descripción"}
-                      </div>
+                      <div className="text-xs text-gray-600 mt-0.5 line-clamp-2">{p.descripcion || "Sin descripción"}</div>
                       <div className="text-base font-bold text-blue-600 mt-2">
                         ${Number(p.precio_venta).toFixed(2)}
                       </div>
@@ -461,7 +336,7 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
           </div>
         </div>
 
-        {/* Carrito y Proceso de Pago */}
+        {/* Carrito + Pago */}
         <div className="space-y-4">
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Carrito de Compra</h3>
@@ -475,20 +350,12 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
               <>
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {cart.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                    >
+                    <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       {/* miniatura */}
                       <div className="mr-3 shrink-0">
                         <div className="h-12 w-12 overflow-hidden rounded-md border border-gray-200 bg-white">
                           {item.imagen_url ? (
-                            <img
-                              src={item.imagen_url}
-                              alt={item.nombre}
-                              className="h-full w-full object-cover"
-                              loading="lazy"
-                            />
+                            <img src={item.imagen_url} alt={item.nombre} className="h-full w-full object-cover" loading="lazy" />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center text-gray-400">
                               <LuImage className="h-5 w-5" />
@@ -542,57 +409,32 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
                   </div>
                 </div>
 
-                <div className="mt-6 space-y-2">
+                {/* Wallet del cliente (opcional, solo registro) */}
+                <div className="mt-4 space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
-                    Wallet Address del Cliente
+                    Wallet del cliente (opcional, solo para registrar)
                   </label>
                   <input
                     type="text"
                     value={payerWalletUrl}
                     onChange={(e) => setPayerWalletUrl(e.target.value)}
-                    placeholder="https://ilp.interledger-test.dev/cliente"
+                    placeholder="https://ilp.example/wallet/cliente"
                     className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     disabled={busy}
                   />
-                  <p className="text-xs text-gray-600">
-                    💡 <strong>Tip:</strong> Para la test wallet, usa el formato{" "}
-                    <code className="bg-gray-100 px-1 rounded">
-                      https://ilp.interledger-test.dev/usuario
-                    </code>
+                  <p className="text-xs text-gray-500">
+                    Si lo dejas vacío, la venta se guarda sin <code>payer_wallet</code>.
                   </p>
                 </div>
 
+                {/* Botón único: Generar Receiver y esperar pago */}
                 <button
-                  onClick={initiatePayment}
-                  disabled={busy || !payerWalletUrl.trim()}
+                  onClick={generarReceiver}
+                  disabled={busy}
                   className="w-full mt-4 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {busy ? "⏳ Procesando..." : "💳 Iniciar Pago con Open Payments"}
+                  {busy ? "⏳ Procesando..." : "🧾 Generar Receiver y esperar pago"}
                 </button>
-
-                <details className="mt-3">
-                  <summary className="text-sm text-gray-600 cursor-pointer hover:text-gray-900">
-                    🔧 Opciones avanzadas
-                  </summary>
-                  <Form method="post" className="mt-2 space-y-2">
-                    <input type="hidden" name="action" value="create-payment" />
-                    <input type="hidden" name="amount" value={total.toFixed(2)} />
-                    <input
-                      type="hidden"
-                      name="description"
-                      value={`Venta: ${cart.map((i) => i.nombre).join(", ")}`}
-                    />
-                    <button
-                      type="submit"
-                      className="w-full py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
-                    >
-                      📝 Generar Receiver (Manual)
-                    </button>
-                    <p className="text-xs text-gray-500">
-                      Genera el receiver sin abrir la wallet del cliente
-                    </p>
-                  </Form>
-                </details>
               </>
             )}
           </div>
@@ -671,13 +513,6 @@ ${percentage > 0 ? "💡 Pago en progreso..." : "⏱️ Esperando que el cliente
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {actionData && !isOk(actionData) && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-sm text-red-800 font-medium">❌ Error</p>
-              <p className="text-sm text-red-700 mt-1">{actionData.error}</p>
             </div>
           )}
         </div>

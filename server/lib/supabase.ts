@@ -1,15 +1,21 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY!;
+let serverClient: SupabaseClient | null = null;
 
-export function getSupabaseServer() {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error('Faltan SUPABASE_URL o SUPABASE_ANON_KEY en .env');
-  }
-  // Usamos anon; NO service role.
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+export function getSupabaseServer(): SupabaseClient {
+  if (serverClient) return serverClient;
+
+  const url = process.env.SUPABASE_URL;
+  const serviceKey =
+    process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_ANON_KEY;
+
+  if (!url) throw new Error('Falta SUPABASE_URL');
+  if (!serviceKey)
+    throw new Error('Falta SUPABASE_SERVICE_ROLE (o SUPABASE_ANON_KEY)');
+
+  serverClient = createClient(url, serviceKey, {
     auth: { persistSession: false },
+    global: { headers: { 'X-Client-Info': 'intershop-pos-server' } },
   });
+  return serverClient;
 }
-//server\lib\supabase.ts
