@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@react-router/dev": "^7.9.2",
-    "@tailwindcss/vite": "^4.1.13",
+    "@tailwindcss/vite": "^4.1.17",
     "@types/body-parser": "^1.19.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.5",
@@ -43,7 +43,7 @@
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "nodemon": "^3.1.10",
-    "tailwindcss": "^4.1.13",
+    "tailwindcss": "^4.1.17",
     "tsx": "^4.20.6",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",

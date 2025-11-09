@@ -1,12 +1,53 @@
 @import "tailwindcss";
 
+/* === Tema Tailwind v4 === */
 @theme {
-  --font-sans: "Inter", system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --radius: 12px;
 }
 
+/* Reset mínimo + base */
 * { margin: 0; padding: 0; box-sizing: border-box; }
-
-html, body { @apply bg-white text-gray-900 font-sans; }
-
-/* scroll suave para navegación entre rutas/secciones */
+html, body { @apply bg-white text-gray-900 font-sans antialiased; }
 html { scroll-behavior: smooth; }
+
+/* Utilidad para layout consistente (margen pequeño top/izq/der) */
+.page { @apply pt-3 px-4 sm:px-5 lg:px-6; }
+
+/* Selección de texto */
+::selection { @apply bg-gray-900 text-white; }
+
+/* Tipografía discreta */
+h1 { @apply text-3xl font-semibold tracking-tight; }
+h2 { @apply text-2xl font-semibold tracking-tight; }
+h3 { @apply text-lg font-semibold; }
+
+/* Form controls */
+input[type="text"],
+input[type="date"],
+input[type="number"],
+select {
+  @apply rounded-lg border border-gray-300 px-3 py-2 text-sm
+         placeholder:text-gray-400 bg-white
+         focus-visible:outline-none focus:ring-0 focus:border-gray-900;
+}
+
+/* Botón neutro */
+.btn {
+  @apply inline-flex items-center justify-center rounded-lg border border-gray-300
+         px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition;
+}
+
+/* Tarjeta reutilizable */
+.card { @apply rounded-xl border border-gray-200 bg-white; }
+
+/* Tabla */
+table { @apply text-sm; }
+th { @apply px-4 py-3 text-[11px] uppercase tracking-wide text-gray-500 bg-gray-50; }
+td { @apply px-4 py-3 text-[13px] text-gray-700; }
+
+/* Scrollbar (WebKit) */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full; }
+*::-webkit-scrollbar-track { @apply bg-gray-100; }

@@ -16,6 +16,6 @@ export default [
 
   ]),
 
-  route("op", "routes/op.tsx"),
-  route("db", "routes/db.tsx"),
+  route("op", "routes/pruebas_api/op.tsx"),
+  
 ] satisfies RouteConfig;
