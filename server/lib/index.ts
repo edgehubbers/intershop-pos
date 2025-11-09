@@ -1,5 +1,7 @@
+// server/lib/index.ts
+
 import 'dotenv/config';
-import express, { type Request, type Response } from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import { getSupabaseServer } from './supabase';
 import {
@@ -8,13 +10,61 @@ import {
   completeIncomingPayment
 } from './open-payments';
 import { resolveWallet } from './wallet';
-
+import { ChatbotWithAI } from './chatbot-ai';
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  credentials: true,
+}));
 app.use(express.json());
 
-// Validar/Resolver wallet del cliente
+// Logging
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
+
+// ============================
+// HEALTH CHECK
+// ============================
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    ok: true,
+    timestamp: Date.now(),
+    services: {
+      supabase: !!process.env.SUPABASE_URL,
+      anthropic: !!process.env.ANTHROPIC_API_KEY,
+      openPayments: !!process.env.WALLET_ADDRESS_URL,
+    },
+  });
+});
+
+// ============================
+// CHATBOT
+// ============================
+app.post('/api/chatbot', async (req: Request, res: Response) => {
+  try {
+    console.log('🤖 Chatbot request received');
+    const { message, history = [] } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: 'El campo "message" es requerido' });
+    }
+
+    const bot = new ChatbotWithAI();
+    const response = await bot.processMessage(message, history);
+
+    res.json({ response });
+  } catch (error: any) {
+    console.error('❌ /api/chatbot error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================
+// WALLET / PAYMENTS
+// ============================
 app.get('/api/wallet/resolve', async (req: Request, res: Response) => {
   try {
     const pointer = String(req.query.pointer ?? '').trim();
@@ -26,12 +76,6 @@ app.get('/api/wallet/resolve', async (req: Request, res: Response) => {
   }
 });
 
-// Health
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ ok: true, ts: Date.now() });
-});
-
-// Productos
 app.get('/api/productos', async (_req: Request, res: Response) => {
   try {
     const supabase = getSupabaseServer();
@@ -48,7 +92,6 @@ app.get('/api/productos', async (_req: Request, res: Response) => {
   }
 });
 
-// Crear cobro (Receiver)
 app.post('/api/create-payment', async (req: Request, res: Response) => {
   try {
     const { amount, description } = req.body as { amount: number; description: string };
@@ -63,11 +106,6 @@ app.post('/api/create-payment', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * Confirma si un receiver ya recibió el monto esperado.
- * Si está pagado: intenta COMPLETE y registra venta en `public.ventas`.
- * Body: { receiver, expectedMinor, assetCode, assetScale, metodo_pago?, id_cliente?, customerWallet? }
- */
 app.post('/api/payments/confirm', async (req: Request, res: Response) => {
   try {
     const {
@@ -106,12 +144,10 @@ app.post('/api/payments/confirm', async (req: Request, res: Response) => {
       });
     }
 
-    // Marca como complete (opcional)
     if (!incoming?.completed) {
       try { await completeIncomingPayment(receiver); } catch (err) { console.warn('⚠️ completeIncomingPayment:', err); }
     }
 
-    // Intentar registrar la venta
     const supabase = getSupabaseServer();
     const totalNumber = Number((expected / Math.pow(10, assetScale)).toFixed(2));
     const metodo = customerWallet
@@ -151,7 +187,37 @@ app.post('/api/payments/confirm', async (req: Request, res: Response) => {
   }
 });
 
+// ============================
+// ERROR HANDLERS
+// ============================
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Ruta no encontrada' });
+});
+
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('❌ Error no manejado:', err);
+  res.status(500).json({
+    error: 'Error interno del servidor',
+    details: process.env.NODE_ENV === 'development' ? err.message : undefined,
+  });
+});
+
+// ============================
+// START SERVER
+// ============================
 const PORT = process.env.PORT ?? 3001;
+
 app.listen(PORT, () => {
-  console.log(`✅ API server listening on http://localhost:${PORT}`);
+  console.log('\n' + '='.repeat(60));
+  console.log('🚀 SERVIDOR BACKEND INICIADO');
+  console.log('='.repeat(60));
+  console.log(`📍 URL: http://localhost:${PORT}`);
+  console.log(`🏥 Health: http://localhost:${PORT}/api/health`);
+  console.log(`💬 Chatbot: http://localhost:${PORT}/api/chatbot`);
+  console.log(`💳 Payments: http://localhost:${PORT}/api/create-payment`);
+  console.log('\n📦 Servicios:');
+  console.log(`   ✅ Supabase: ${process.env.SUPABASE_URL ? 'Configurado' : '❌ Falta'}`);
+  console.log(`   ✅ Claude API: ${process.env.ANTHROPIC_API_KEY ? 'Configurado' : '❌ Falta'}`);
+  console.log(`   ✅ Open Payments: ${process.env.WALLET_ADDRESS_URL ? 'Configurado' : '❌ Falta'}`);
+  console.log('='.repeat(60) + '\n');
 });

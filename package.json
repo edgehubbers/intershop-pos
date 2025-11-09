@@ -4,10 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "react-router dev",
+    "dev:server": "nodemon --watch server --ext ts --exec \"tsx server/lib/index.ts\"",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "build": "react-router build",
     "start": "react-router-serve ./build/server/index.js",
-    "typecheck": "react-router typegen && tsc",
-    "dev:server": "nodemon --watch server --ext ts --exec \"tsx server/lib/index.ts\""
+    "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

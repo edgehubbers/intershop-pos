@@ -1,6 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, TrendingUp, Package, Users, DollarSign, AlertCircle } from 'lucide-react';
+// app/routes/dashboard/chatbot.tsx
+
+import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { FiSend } from 'react-icons/fi';
+import { BiBot, BiUser } from 'react-icons/bi';
+import { TbTrendingUp, TbPackage, TbUsers, TbCurrencyDollar } from 'react-icons/tb';
 
 interface Message {
   id: string;
@@ -23,11 +27,11 @@ export default function ChatbotDashboard() {
       content: `¡Hola! Soy tu asistente virtual de negocios impulsado por IA.
 
 Puedo ayudarte con:
-• Análisis de ventas en tiempo real
-• Gestión de inventario y alertas de stock
-• Insights de productos más vendidos
-• Información de clientes y lealtad
-• Recomendaciones personalizadas
+- Análisis de ventas en tiempo real
+- Gestión de inventario y alertas de stock
+- Insights de productos más vendidos
+- Información de clientes y lealtad
+- Recomendaciones personalizadas
 
 ¿En qué puedo ayudarte hoy?`,
       timestamp: new Date()
@@ -39,29 +43,55 @@ Puedo ayudarte con:
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const API_URL = typeof window !== 'undefined' 
+    ? (import.meta.env.VITE_API_URL || 'http://localhost:3000')
+    : 'http://localhost:3000';
 
   const quickActions: QuickAction[] = [
-    { label: 'Ventas de hoy', query: '¿Cuáles son las ventas de hoy?', icon: <DollarSign className="w-4 h-4" /> },
-    { label: 'Stock bajo', query: '¿Qué productos tienen stock bajo?', icon: <Package className="w-4 h-4" /> },
-    { label: 'Top productos', query: 'Muéstrame los productos más vendidos', icon: <TrendingUp className="w-4 h-4" /> },
-    { label: 'Categorías', query: '¿Qué categorías tengo?', icon: <Users className="w-4 h-4" /> }
+    { 
+      label: 'Ventas de hoy', 
+      query: '¿Cuáles son las ventas de hoy?', 
+      icon: <TbCurrencyDollar className="w-4 h-4" /> 
+    },
+    { 
+      label: 'Stock bajo', 
+      query: '¿Qué productos tienen stock bajo?', 
+      icon: <TbPackage className="w-4 h-4" /> 
+    },
+    { 
+      label: 'Top productos', 
+      query: 'Muéstrame los productos más vendidos', 
+      icon: <TbTrendingUp className="w-4 h-4" /> 
+    },
+    { 
+      label: 'Categorías', 
+      query: '¿Qué categorías tengo?', 
+      icon: <TbUsers className="w-4 h-4" /> 
+    }
   ];
 
-  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
-  useEffect(() => scrollToBottom(), [messages]);
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   useEffect(() => {
     const checkServerHealth = async () => {
       try {
         const response = await fetch(`${API_URL}/api/health`);
-        if (!response.ok) setError('El servidor no está disponible.');
-        else setError(null);
+        if (!response.ok) {
+          setError('El servidor no está disponible.');
+        } else {
+          setError(null);
+        }
       } catch {
         setError('No se puede conectar al servidor.');
       }
     };
+    
     checkServerHealth();
   }, [API_URL]);
 
@@ -69,7 +99,13 @@ Puedo ayudarte con:
     const messageText = text || inputValue.trim();
     if (!messageText || isLoading) return;
 
-    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: messageText, timestamp: new Date() };
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: messageText,
+      timestamp: new Date()
+    };
+
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
@@ -79,7 +115,12 @@ Puedo ayudarte con:
       const response = await fetch(`${API_URL}/api/chatbot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageText, userId: null, sucursalId: null, history: messages.slice(-5) })
+        body: JSON.stringify({
+          message: messageText,
+          userId: null,
+          sucursalId: null,
+          history: messages.slice(-5)
+        })
       });
 
       if (!response.ok) {
@@ -94,6 +135,7 @@ Puedo ayudarte con:
         content: data.response || 'Lo siento, no pude procesar tu solicitud.',
         timestamp: new Date()
       };
+
       setMessages(prev => [...prev, assistantMessage]);
 
     } catch (err) {
@@ -103,40 +145,57 @@ Puedo ayudarte con:
         content: `❌ Error: ${err instanceof Error ? err.message : 'Error desconocido'}\n\nPor favor verifica:\n1. Que el servidor esté corriendo\n2. Que las variables de entorno estén configuradas\n3. Que la API key de Claude sea válida`,
         timestamp: new Date()
       };
+
       setMessages(prev => [...prev, errorMessage]);
       setError('Error al comunicarse con el servidor');
 
-    } finally { setIsLoading(false); }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="flex flex-col h-[calc(100vh-64px)] bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm flex justify-between items-center">
         <div className="flex items-center space-x-3">
-          <div className="bg-indigo-600 rounded-lg p-2"><Bot className="w-6 h-6 text-white" /></div>
+          <div className="bg-indigo-600 rounded-lg p-2">
+            <BiBot className="w-6 h-6 text-white" />
+          </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">Asistente de Negocios con IA</h1>
             <p className="text-sm text-gray-500">Análisis inteligente con Claude</p>
           </div>
         </div>
-        <div className={`px-3 py-1 rounded-full text-sm font-medium ${error ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+        <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+          error ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+        }`}>
           {error ? 'Desconectado' : 'En línea'}
         </div>
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3 overflow-x-auto flex space-x-2">
-        {quickActions.map((action, index) => (
-          <button key={index} onClick={() => handleSendMessage(action.query)} disabled={isLoading || !!error}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
-            {action.icon} <span>{action.label}</span>
-          </button>
-        ))}
+      <div className="bg-white border-b border-gray-200 px-6 py-3 overflow-x-auto">
+        <div className="flex space-x-2 min-w-max">
+          {quickActions.map((action, index) => (
+            <button
+              key={index}
+              onClick={() => handleSendMessage(action.query)}
+              disabled={isLoading || !!error}
+              className="flex items-center space-x-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {action.icon}
+              <span>{action.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Messages */}
@@ -144,11 +203,21 @@ Puedo ayudarte con:
         {messages.map(msg => (
           <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`flex ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'} items-start space-x-3 max-w-3xl`}>
-              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${msg.role === 'user' ? 'bg-indigo-600' : 'bg-white border-2 border-indigo-200'}`}>
-                {msg.role === 'user' ? <User className="w-5 h-5 text-white" /> : <Bot className="w-5 h-5 text-indigo-600" />}
+              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                msg.role === 'user' ? 'bg-indigo-600' : 'bg-white border-2 border-indigo-200'
+              }`}>
+                {msg.role === 'user' ? (
+                  <BiUser className="w-5 h-5 text-white" />
+                ) : (
+                  <BiBot className="w-5 h-5 text-indigo-600" />
+                )}
               </div>
               <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                <div className={`px-4 py-3 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-800 shadow-md border border-gray-100'}`}>
+                <div className={`px-4 py-3 rounded-2xl ${
+                  msg.role === 'user' 
+                    ? 'bg-indigo-600 text-white' 
+                    : 'bg-white text-gray-800 shadow-md border border-gray-100'
+                }`}>
                   {msg.role === 'assistant' ? (
                     <ReactMarkdown
                       components={{
@@ -179,11 +248,12 @@ Puedo ayudarte con:
             </div>
           </div>
         ))}
+
         {isLoading && (
           <div className="flex justify-start">
             <div className="flex items-start space-x-3">
               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border-2 border-indigo-200 flex items-center justify-center">
-                <Bot className="w-5 h-5 text-indigo-600" />
+                <BiBot className="w-5 h-5 text-indigo-600" />
               </div>
               <div className="bg-white px-4 py-3 rounded-2xl shadow-md border border-gray-100">
                 <div className="flex space-x-2">
@@ -195,11 +265,12 @@ Puedo ayudarte con:
             </div>
           </div>
         )}
+
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
-      <div className="bg-white border-t border-gray-200 px-6 py-4 flex flex-col">
+      <div className="bg-white border-t border-gray-200 px-6 py-4">
         <div className="flex items-end space-x-3">
           <div className="flex-1 bg-gray-100 rounded-2xl px-4 py-2 focus-within:ring-2 focus-within:ring-indigo-500">
             <textarea
@@ -217,7 +288,7 @@ Puedo ayudarte con:
             disabled={!inputValue.trim() || isLoading || !!error}
             className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white p-3 rounded-full transition-colors shadow-lg"
           >
-            <Send className="w-5 h-5" />
+            <FiSend className="w-5 h-5" />
           </button>
         </div>
         <p className="text-xs text-gray-500 mt-2 text-center">

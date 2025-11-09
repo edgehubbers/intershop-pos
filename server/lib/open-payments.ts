@@ -122,3 +122,4 @@ export async function completeIncomingPayment(receiverUrl: string) {
   const res = await client.incomingPayment.complete({ url: receiverUrl, accessToken });
   return res;
 }
+//server\lib\open-payments.ts
