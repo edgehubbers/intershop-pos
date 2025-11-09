@@ -1,5 +1,3 @@
-// app/components/PublicNavbar.tsx
-
 import React from "react";
 import CardNav from "./CardNav";
 import type { CardNavItem } from "./CardNav";
@@ -21,8 +19,8 @@ export function PublicNavbar() {
       bgColor: "#170D27",
       textColor: "#fff",
       links: [
-        { label: "Nuestra misión", href: "/about", ariaLabel: "Ir a misión" },
-        { label: "Historia", href: "/about", ariaLabel: "Ir a historia" },
+        { label: "Nuestra misión", href: "/mision-vision", ariaLabel: "Ir a misión" },
+        { label: "Historia", href: "/sobre-nosotros", ariaLabel: "Ir a historia" },
       ],
     },
     {
@@ -31,7 +29,7 @@ export function PublicNavbar() {
       textColor: "#fff",
       links: [
         { label: "Planes", href: "/pricing", ariaLabel: "Ver planes" },
-        { label: "Preguntas", href: "/pricing", ariaLabel: "Preguntas de precio" },
+        { label: "Preguntas", href: "/preguntas-frecuentes", ariaLabel: "Preguntas de precio" },
       ],
     },
   ];

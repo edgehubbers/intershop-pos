@@ -1,12 +1,12 @@
-// server/lib/web-store.ts
 import type { Express, Request, Response } from 'express';
 import { getSupabaseServer } from './supabase';
 import {
-  // flujo POS rápido (opcional)
+  // flujo POS rápido (legacy opcional)
   createPaymentRequest,
+  getOpenPaymentsClient,
+  // legacy helpers sin auth
   getIncomingPaymentStatus,
   completeIncomingPayment,
-  getOpenPaymentsClient,
 } from './open-payments';
 
 import {
@@ -18,6 +18,7 @@ import {
   continueCustomerGrant,
   createCustomerQuote,
   createOutgoingPayment,
+  // helpers nuevos con auth explícita
   getIncomingWithMerchantAuth,
   completeIncomingWithMerchantAuth,
 } from './open-payments-gnap';
@@ -35,8 +36,19 @@ function publicUrlOf(supabase: ReturnType<typeof getSupabaseServer>, path: strin
   }
 }
 
+/** Normaliza wallet del cliente: admite $pointer, http/https o dominio sin esquema */
+function normalizeWalletAddress(input: string): string {
+  const v = String(input || '').trim();
+  if (!v) return v;
+  if (v.startsWith('$')) return 'https://' + v.slice(1);
+  if (v.startsWith('http://') || v.startsWith('https://')) return v;
+  return 'https://' + v;
+}
+
 export function attachWebStore(app: Express) {
-  // ============================ SETTINGS ============================
+  // ============================
+  // SETTINGS
+  // ============================
   app.get('/api/store/settings', async (_req: Request, res: Response) => {
     try {
       const supabase = getSupabaseServer();
@@ -93,7 +105,9 @@ export function attachWebStore(app: Express) {
     }
   });
 
-  // ============================ PRODUCTOS ============================
+  // ============================
+  // PRODUCTOS PÚBLICOS
+  // ============================
   app.get('/api/store/products', async (_req: Request, res: Response) => {
     try {
       const supabase = getSupabaseServer();
@@ -127,20 +141,31 @@ export function attachWebStore(app: Express) {
     }
   });
 
-  // ============================ CHECKOUT: cliente/pedido ============================
+  // ============================
+  // CHECKOUT clásico (cliente/pedido)
+  // ============================
   app.post('/api/tienda/cliente', async (req: Request, res: Response) => {
     try {
       const { nombre, correo, telefono, direccion } = req.body || {};
-      if (!correo || !nombre) return res.status(400).json({ ok: false, message: 'nombre y correo son requeridos' });
+      if (!correo || !nombre) {
+        return res.status(400).json({ ok: false, message: 'nombre y correo son requeridos' });
+      }
 
       const supabase = getSupabaseServer();
       const up = await supabase
         .from('clientes')
-        .upsert({ nombre, correo, telefono: telefono || null, direccion: direccion || null }, { onConflict: 'correo' })
+        .upsert({ 
+          nombre, 
+          correo, 
+          telefono: telefono || null, 
+          direccion: direccion || null 
+        }, { onConflict: 'correo' })
         .select('id, nombre, correo')
         .single();
+        
       if (up.error) throw up.error;
 
+      console.log('✅ Cliente registrado/encontrado:', up.data.id);
       res.json({ ok: true, cliente: up.data });
     } catch (e: any) {
       console.error('❌ POST /api/tienda/cliente', e);
@@ -151,11 +176,15 @@ export function attachWebStore(app: Express) {
   app.post('/api/tienda/pedido', async (req: Request, res: Response) => {
     try {
       const { id_cliente, items } = req.body || {};
+      
       if (!id_cliente || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ ok: false, message: 'payload inválido' });
       }
-      const total = items.reduce((acc: number, it: any) =>
-        acc + Number(it.precio_unitario || 0) * Number(it.cantidad || 0), 0);
+      
+      const total = items.reduce(
+        (acc: number, it: any) => acc + Number(it.precio_unitario || 0) * Number(it.cantidad || 0), 
+        0
+      );
 
       const supabase = getSupabaseServer();
       const ins = await supabase
@@ -163,6 +192,7 @@ export function attachWebStore(app: Express) {
         .insert({ id_cliente, estado: 'pendiente', total })
         .select('id, id_cliente, estado, total')
         .single();
+        
       if (ins.error) throw ins.error;
 
       const detalleRows = items.map((it: any) => ({
@@ -172,9 +202,11 @@ export function attachWebStore(app: Express) {
         precio_unitario: Number(it.precio_unitario),
         subtotal: Number((Number(it.cantidad) * Number(it.precio_unitario)).toFixed(2)),
       }));
+      
       const detIns = await supabase.from('detalle_pedido').insert(detalleRows);
       if (detIns.error) throw detIns.error;
 
+      console.log('✅ Pedido creado:', ins.data.id);
       res.json({ ok: true, pedido: ins.data });
     } catch (e: any) {
       console.error('❌ POST /api/tienda/pedido', e);
@@ -182,22 +214,28 @@ export function attachWebStore(app: Express) {
     }
   });
 
-  // ============================ GNAP: START ============================
+  // ============================
+  // GNAP: START (merchant incoming + grant interactivo del cliente)
+  // ============================
   app.post('/api/op/checkout/start', async (req: Request, res: Response) => {
     try {
       const { amount, description, customerWalletAddress, pedidoId } = req.body || {};
+      
+      console.log('🚀 Iniciando checkout GNAP:', { amount, customerWalletAddress, pedidoId });
+      
       if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
         return res.status(400).json({ ok: false, message: 'amount inválido' });
       }
+      
       if (!customerWalletAddress) {
         return res.status(400).json({ ok: false, message: 'customerWalletAddress requerido' });
       }
 
-      // 1) Cliente autenticado del COMERCIO + access token
+      // 1) Cliente autenticado del COMERCIO + access token de merchant
       const { client, merchant } = await getMerchantClient();
       const merchantAccessToken = await requestMerchantAccessToken(client, merchant);
 
-      // 2) Minor units (asset del COMERCIO)
+      // 2) Minor units según asset del COMERCIO
       const amountMinor = Math.round(Number(amount) * Math.pow(10, merchant.assetScale));
 
       // 3) Crear Incoming Payment en la cuenta del COMERCIO
@@ -206,22 +244,30 @@ export function attachWebStore(app: Express) {
         description: description ? String(description) : `Pedido Online #${pedidoId ?? ''}`.trim(),
       });
 
-      // 4) Resolver wallet del CLIENTE
-      const customer = await resolveWalletServers(String(customerWalletAddress));
+      // 4) Resolver wallet del CLIENTE (admite $pointer)
+      const normalizedWallet = normalizeWalletAddress(String(customerWalletAddress));
+      console.log('🔍 Wallet normalizado del cliente:', normalizedWallet);
+      
+      const customer = await resolveWalletServers(normalizedWallet);
 
-      // 5) Grant interactivo del cliente (redirect)
+      // 5) Grant interactivo (redirect)
       const inter = await requestCustomerInteractiveGrant(client, customer, {
         receiverUrl: incoming.id,
         finishRedirectUri: `${FRONTEND_URL}/tienda/callback`,
       });
 
-      // (opcional) guardar receiver en el pedido
+      // (opcional) Persistir receiver en el pedido
       const supabase = getSupabaseServer();
       if (pedidoId) {
         await supabase.from('pedidos_online')
           .update({ receiver: incoming.id })
           .eq('id', Number(pedidoId));
       }
+
+      console.log('✅ Checkout iniciado exitosamente:', {
+        receiver: incoming.id,
+        redirect: inter.grant.interact.redirect
+      });
 
       return res.json({
         ok: true,
@@ -245,7 +291,9 @@ export function attachWebStore(app: Express) {
     }
   });
 
-  // ============================ GNAP: CONTINUE ============================
+  // ============================
+  // GNAP: CONTINUE (finaliza grant, crea Quote y Outgoing Payment)
+  // ============================
   app.post('/api/op/checkout/continue', async (req: Request, res: Response) => {
     try {
       const {
@@ -257,23 +305,31 @@ export function attachWebStore(app: Express) {
         pedidoId,
       } = req.body || {};
 
+      console.log('🔄 Continuando grant del cliente:', { interact_ref, receiver, pedidoId });
+
       if (!continueUri || !continueAccessToken || !interact_ref || !customerWalletAddress || !receiver) {
         return res.status(400).json({ ok: false, message: 'payload incompleto' });
       }
 
       const { client } = await getMerchantClient();
-      const customer = await resolveWalletServers(String(customerWalletAddress));
-
-      // 1) Finalizar concesión → access_token del cliente
-      const fin = await continueCustomerGrant(
-        client, String(continueUri), String(continueAccessToken), String(interact_ref)
+      const customer = await resolveWalletServers(
+        normalizeWalletAddress(String(customerWalletAddress))
       );
+
+      // 1) Finalizar concesión → debe traer access_token
+      const fin = await continueCustomerGrant(
+        client,
+        String(continueUri),
+        String(continueAccessToken),
+        String(interact_ref)
+      );
+      
       const custToken = fin.access_token.value;
 
-      // 2) Crear Quote con token del cliente
+      // 2) Crear Quote (token del cliente)
       const quote = await createCustomerQuote(client, customer, custToken, String(receiver));
 
-      // 3) Crear Outgoing Payment con la Quote
+      // 3) Crear Outgoing Payment con la Quote aprobada
       const op = await createOutgoingPayment(client, customer, custToken, quote.id);
 
       // (opcional) guardar OP id en el pedido
@@ -283,6 +339,12 @@ export function attachWebStore(app: Express) {
           .update({ outgoing_payment_id: op.id })
           .eq('id', Number(pedidoId));
       }
+
+      console.log('✅ Grant completado y outgoing payment creado:', {
+        outgoingPaymentId: op.id,
+        debitAmount: quote.debitAmount,
+        receiveAmount: quote.receiveAmount
+      });
 
       res.json({
         ok: true,
@@ -296,72 +358,131 @@ export function attachWebStore(app: Express) {
     }
   });
 
-  // ============================ CONFIRMAR (polling) ============================
+  // ============================
+  // CONFIRMAR (polling) con incomingPayment URL (siempre con auth del COMERCIO)
+  // ============================
   app.post('/api/tienda/confirmar-pago', async (req: Request, res: Response) => {
     try {
-      const { receiver, expectedMinor, assetCode, assetScale, pedidoId, customerWallet } = req.body || {};
+      const {
+        receiver,
+        expectedMinor,
+        assetCode,
+        assetScale,
+        pedidoId,
+        customerWallet,
+      } = req.body || {};
+
       if (!receiver || typeof expectedMinor !== 'number' || !assetCode || typeof assetScale !== 'number') {
         return res.status(400).json({ paid: false, message: 'Payload inválido' });
       }
 
-      // Leer SIEMPRE con auth del comercio (fallback público solo si aplica)
+      console.log('🔍 Verificando pago:', { receiver, expectedMinor, assetCode, assetScale });
+
+      // 1) Leer con auth del comercio (fallback a lectura pública si el RS lo permite)
       let incoming: any;
       try {
         const authed = await getIncomingWithMerchantAuth(String(receiver));
         incoming = authed.incoming;
       } catch (err: any) {
+        console.warn('⚠️ Fallo auth del comercio, intentando lectura pública:', err.message);
         try {
           incoming = await getIncomingPaymentStatus(String(receiver));
-        } catch {
-          console.warn('⚠️ No se pudo leer incoming (ni con auth ni pública):', err?.message || err);
-          throw err;
+        } catch (publicErr: any) {
+          console.error('❌ No se pudo leer incoming (ni con auth ni pública):', publicErr.message);
+          return res.status(403).json({ 
+            paid: false, 
+            message: 'No se puede acceder al incoming payment. Verifica las credenciales del comercio.' 
+          });
         }
       }
 
       const receivedMinor = parseInt(incoming?.receivedAmount?.value ?? '0', 10);
       const paid = receivedMinor >= Number(expectedMinor);
 
+      console.log('📊 Estado del pago:', { 
+        receivedMinor, 
+        expectedMinor, 
+        paid, 
+        completed: incoming?.completed 
+      });
+
       if (!paid) {
-        return res.json({ paid: false, receivedMinor, expectedMinor, completed: !!incoming?.completed });
+        return res.json({ 
+          paid: false, 
+          receivedMinor, 
+          expectedMinor, 
+          completed: !!incoming?.completed 
+        });
       }
 
+      // 2) Completar con auth del comercio; si falla intentar legacy sin auth
       if (!incoming?.completed) {
-        try { await completeIncomingWithMerchantAuth(String(receiver)); }
-        catch { try { await completeIncomingPayment(String(receiver)); } catch {} }
+        console.log('⏳ Completando incoming payment...');
+        try {
+          await completeIncomingWithMerchantAuth(String(receiver));
+        } catch (completeErr: any) {
+          console.warn('⚠️ Error completando con auth, intentando sin auth:', completeErr.message);
+          try { 
+            await completeIncomingPayment(String(receiver)); 
+          } catch (legacyErr: any) {
+            console.warn('⚠️ No se pudo completar el incoming payment:', legacyErr.message);
+          }
+        }
       }
 
+      // 3) Persistencia y respuesta
       const supabase = getSupabaseServer();
+
       if (pedidoId) {
+        console.log('💾 Actualizando estado del pedido a "pagado":', pedidoId);
         await supabase
           .from('pedidos_online')
-          .update({ estado: 'pagado', receiver: String(receiver), payer_wallet: customerWallet ?? null })
+          .update({ 
+            estado: 'pagado', 
+            receiver: String(receiver), 
+            payer_wallet: customerWallet ?? null 
+          })
           .eq('id', Number(pedidoId));
       }
 
-      return res.json({ paid: true, receivedMinor, expectedMinor, assetCode, assetScale });
+      console.log('✅ Pago confirmado exitosamente');
+
+      return res.json({ 
+        paid: true, 
+        receivedMinor, 
+        expectedMinor, 
+        assetCode, 
+        assetScale 
+      });
     } catch (e: any) {
       console.error('❌ POST /api/tienda/confirmar-pago', e);
       res.status(500).json({ paid: false, message: e?.message ?? 'Error confirmando pago' });
     }
   });
 
-  // ============================ Alias legacy ============================
+  // Alias legacy
   app.get('/api/tienda/productos', (req: any, res: any) =>
     (app as any)._router.handle({ ...req, url: '/api/store/products' }, res, () => {})
   );
 
-  // ============================ Flujo simple (opcional) ============================
+  // ============================
+  // Flujo simple sin GNAP (opcional)
+  // ============================
   app.post('/api/create-payment', async (req: Request, res: Response) => {
     try {
       const { amount, description } = req.body as { amount: number; description: string };
       const numAmount = Number(amount);
+      
       if (!Number.isFinite(numAmount) || numAmount <= 0) {
         return res.status(400).json({ success: false, message: 'amount inválido' });
       }
 
       const created: any = await createPaymentRequest(numAmount, description ?? '');
       const receiverUrl: string = created?.receiver ?? created?.paymentUrl;
-      if (!receiverUrl) return res.status(500).json({ success: false, message: 'No se obtuvo receiver' });
+      
+      if (!receiverUrl) {
+        return res.status(500).json({ success: false, message: 'No se obtuvo receiver' });
+      }
 
       const client = await getOpenPaymentsClient();
       const wallet = await client.walletAddress.get({ url: process.env.WALLET_ADDRESS_URL! });
@@ -371,7 +492,14 @@ export function attachWebStore(app: Express) {
 
       res.status(201).json({
         success: true,
-        payment: { receiver: receiverUrl, amount: numAmount, description: description ?? '', assetCode, assetScale, expectedMinor },
+        payment: { 
+          receiver: receiverUrl, 
+          amount: numAmount, 
+          description: description ?? '', 
+          assetCode, 
+          assetScale, 
+          expectedMinor 
+        },
         walletAddressUrl: process.env.WALLET_ADDRESS_URL,
       });
     } catch (e: any) {
@@ -380,15 +508,26 @@ export function attachWebStore(app: Express) {
     }
   });
 
+  // Confirmación genérica POS (con auth del comercio)
   app.post('/api/payments/confirm', async (req: Request, res: Response) => {
     try {
       const {
-        receiver, expectedMinor, assetCode, assetScale,
+        receiver, 
+        expectedMinor, 
+        assetCode, 
+        assetScale,
         metodo_pago = 'open-payments',
-        id_cliente = null, customerWallet = null, items = [],
+        id_cliente = null, 
+        customerWallet = null, 
+        items = [],
       } = req.body as {
-        receiver: string; expectedMinor: number; assetCode: string; assetScale: number;
-        metodo_pago?: string; id_cliente?: number | null; customerWallet?: string | null;
+        receiver: string; 
+        expectedMinor: number; 
+        assetCode: string; 
+        assetScale: number;
+        metodo_pago?: string; 
+        id_cliente?: number | null; 
+        customerWallet?: string | null;
         items?: Array<{ producto_id: number; cantidad: number; precio_unitario: number }>;
       };
 
@@ -396,11 +535,13 @@ export function attachWebStore(app: Express) {
         return res.status(400).json({ paid: false, message: 'Payload inválido' });
       }
 
+      // Leer con auth del comercio
       let incoming: any;
       try {
         const authed = await getIncomingWithMerchantAuth(receiver);
         incoming = authed.incoming;
       } catch (err: any) {
+        // Fallback lectura pública
         try {
           incoming = await getIncomingPaymentStatus(receiver);
         } catch {
@@ -411,32 +552,61 @@ export function attachWebStore(app: Express) {
 
       const receivedMinor = parseInt(incoming?.receivedAmount?.value ?? '0', 10);
       const paid = receivedMinor >= Number(expectedMinor);
-      if (!paid) return res.json({ paid: false, receivedMinor, expectedMinor, completed: !!incoming?.completed });
+      
+      if (!paid) {
+        return res.json({ paid: false, receivedMinor, expectedMinor, completed: !!incoming?.completed });
+      }
 
       if (!incoming?.completed) {
-        try { await completeIncomingWithMerchantAuth(receiver); }
-        catch { try { await completeIncomingPayment(receiver); } catch {} }
+        try {
+          await completeIncomingWithMerchantAuth(receiver);
+        } catch {
+          try { await completeIncomingPayment(receiver); } catch {}
+        }
       }
 
       const supabase = getSupabaseServer();
       const safeItems = Array.isArray(items) ? items : [];
-      const totalFromItems = safeItems.reduce((acc, it) => acc + Number(it.precio_unitario || 0) * Number(it.cantidad || 0), 0);
+      const totalFromItems = safeItems.reduce(
+        (acc, it) => acc + Number(it.precio_unitario || 0) * Number(it.cantidad || 0), 
+        0
+      );
       const fallbackTotal = Number((expectedMinor / Math.pow(10, assetScale)).toFixed(2));
       const totalNumber = Number((totalFromItems > 0 ? totalFromItems : fallbackTotal).toFixed(2));
 
       const { data: ventaRow, error: ventaErr } = await supabase
         .from('ventas')
-        .insert({ total: totalNumber, metodo_pago, id_cliente: id_cliente ?? null, receiver, payer_wallet: customerWallet ?? null })
+        .insert({ 
+          total: totalNumber, 
+          metodo_pago, 
+          id_cliente: id_cliente ?? null, 
+          receiver, 
+          payer_wallet: customerWallet ?? null 
+        })
         .select('id')
         .single();
 
       if (ventaErr) {
         if ((ventaErr as any).code === '23505') {
-          const { data: existing } = await supabase.from('ventas').select('id').eq('receiver', receiver).single();
-          return res.status(200).json({ paid: true, ventaId: existing?.id ?? null, receivedMinor, expectedMinor });
+          const { data: existing } = await supabase
+            .from('ventas')
+            .select('id')
+            .eq('receiver', receiver)
+            .single();
+          return res.status(200).json({ 
+            paid: true, 
+            ventaId: existing?.id ?? null, 
+            receivedMinor, 
+            expectedMinor 
+          });
         }
         console.error('❌ Insert ventas:', ventaErr);
-        return res.status(200).json({ paid: true, ventaId: null, receivedMinor, expectedMinor });
+        return res.status(200).json({ 
+          paid: true, 
+          ventaId: null, 
+          receivedMinor, 
+          expectedMinor 
+        });
       }
 
       const ventaId = Number(ventaRow.id);
@@ -449,15 +619,25 @@ export function attachWebStore(app: Express) {
           precio_unitario: Number(it.precio_unitario),
           subtotal: Number((Number(it.cantidad) * Number(it.precio_unitario)).toFixed(2)),
         }));
+        
         const { error: detErr } = await supabase.from('detalle_venta').insert(detalleRows);
         if (detErr) console.error('❌ Insert detalle_venta:', detErr);
 
         await Promise.all(
-          detalleRows.map((it) => supabase.rpc('decrementar_stock', { p_id: it.id_producto, p_qty: it.cantidad }))
+          detalleRows.map((it) => 
+            supabase.rpc('decrementar_stock', { p_id: it.id_producto, p_qty: it.cantidad })
+          )
         ).catch((e) => console.warn('⚠️ decrementar_stock:', e));
       }
 
-      res.json({ paid: true, ventaId, receivedMinor, expectedMinor, assetCode, assetScale });
+      res.json({ 
+        paid: true, 
+        ventaId, 
+        receivedMinor, 
+        expectedMinor, 
+        assetCode, 
+        assetScale 
+      });
     } catch (e: any) {
       console.error('❌ /api/payments/confirm:', e);
       res.status(500).json({ paid: false, message: e?.message ?? 'Error confirmando pago' });
